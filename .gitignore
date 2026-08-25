@@ -1,0 +1,5 @@
+build/
+tests/touchstring-test
+tests/*.dSYM/
+tests/*.wav
+.DS_Store
