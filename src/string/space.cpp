@@ -71,19 +71,24 @@ float Space::ReadDelay(const float* buf, int size, int wpos, float delay)
     return buf[i] + (buf[j] - buf[i]) * f;
 }
 
+void Space::Tick(size_t block_size)
+{
+    for(int m = 0; m < 2; ++m)
+    {
+        mod_phase_[m] += mod_inc_[m] * static_cast<float>(block_size);
+        if(mod_phase_[m] >= 1.0f) mod_phase_[m] -= 1.0f;
+        // Only two of the four lines move. Modulating all of them is a chorus.
+        mod_[m] = 30.0f + 24.0f * sinf(6.2831853f * mod_phase_[m]);
+    }
+}
+
 void Space::Process(float in, float& out_l, float& out_r)
 {
     float x = in;
     for(auto& a : ap_) x = a.Process(x, g_ap_);
 
-    for(int m = 0; m < 2; ++m)
-    {
-        mod_phase_[m] += mod_inc_[m];
-        if(mod_phase_[m] >= 1.0f) mod_phase_[m] -= 1.0f;
-    }
-    // Only two of the four move. Modulating all of them is a chorus.
-    const float mod0 = 30.0f + 24.0f * sinf(6.2831853f * mod_phase_[0]);
-    const float mod3 = 30.0f + 24.0f * sinf(6.2831853f * mod_phase_[1]);
+    const float mod0 = mod_[0];
+    const float mod3 = mod_[1];
 
     float d[kLines];
     d[0] = ReadDelay(line_[0], size_[0], w_[0], static_cast<float>(base_[0]) + mod0);

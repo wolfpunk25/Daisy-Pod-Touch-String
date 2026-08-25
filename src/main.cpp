@@ -100,6 +100,20 @@ int main(void)
                                static_cast<int>(m.Degree()),
                                m.DegreeHeld() ? 1 : 0,
                                panel.Link().Linked() ? 1 : 0);
+            const Engine::Stages st  = engine.TakeStages();
+            const Panel::MidiTally& mt = panel.Midi();
+            // The stage meters are in thousandths of full scale, so a screaming
+            // stage is obvious and the one before it says where it came from.
+            pod.seed.PrintLine("plucks %d  lvl vox %d dry %d wet %d out %d",
+                               static_cast<int>(engine.Plucks()),
+                               static_cast<int>(st.vox * 1000.0f),
+                               static_cast<int>(st.dry * 1000.0f),
+                               static_cast<int>(st.wet * 1000.0f),
+                               static_cast<int>(st.out * 1000.0f));
+            pod.seed.PrintLine("midi on %d off %d cc %d bend %d srt %d drop %d  last t%d c%d %d %d",
+                               mt.notes_on, mt.notes_off, mt.ccs, mt.bends,
+                               mt.clocks, mt.discarded, mt.last_type, mt.last_ch,
+                               mt.last_d0, mt.last_d1);
             pod.seed.PrintLine("br %d ti %d da %d dr %d de %d sh %d rv %d ch %d  bpm %d tr %+d sc %d",
                                static_cast<int>(m.Norm(Param::Brightness) * 100.0f),
                                static_cast<int>(m.Norm(Param::Timbre) * 100.0f),

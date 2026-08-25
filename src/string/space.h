@@ -17,6 +17,7 @@
 // The knob is not only a mix. It stretches the decay as well, so turning it up
 // gives a bigger room rather than more of the same small one — which is what a
 // single reverb knob is expected to do, and upstream's fixed 0.8 feedback cannot.
+#include <stddef.h>
 #include <stdint.h>
 
 namespace tspod {
@@ -29,6 +30,12 @@ class Space
 
     // 0..1, straight off the Reverb control.
     void SetKnob(float k);
+
+    // Once per audio block. The two line modulators run at 0.09 and 0.13 Hz,
+    // and evaluating a sub-1 Hz sine 48000 times a second is pure waste — the
+    // Terrarium Pod port halved its CPU by moving exactly this kind of thing to
+    // block rate. A block is 83 us; nothing at 0.1 Hz notices.
+    void Tick(size_t block_size);
 
     // Wet only. The dry/wet balance is the caller's, through XFade.
     void Process(float in, float& out_l, float& out_r);
@@ -95,6 +102,7 @@ class Space
 
     float mod_phase_[2] = { 0.0f, 0.37f };
     float mod_inc_[2]   = { 0.0f, 0.0f };
+    float mod_[2]       = { 30.0f, 30.0f };   // held across the block
 };
 
 } // namespace tspod

@@ -125,6 +125,13 @@ Needs the ARM GNU toolchain and `dfu-util` on `PATH`.
 make libs -j8 && make -j8
 ```
 
+**Build the libraries in this project.** Do not copy `libdaisy.a` or
+`libdaisysp.a` in from another Daisy project, even one on the same commit —
+objects built elsewhere carry that build's struct layouts, and linking them
+against these headers puts DSP setters at the wrong member offsets. It does not
+fail to link; it produces an instrument that screams at boot. That cost an
+evening, and it is written up in [`docs/PORTING.md`](docs/PORTING.md).
+
 Flash with `make program-dfu` (hold BOOT, tap RESET), or drop
 `build/touchstring_pod.bin` on the [Daisy web programmer](https://electro-smith.github.io/Programmer/).
 

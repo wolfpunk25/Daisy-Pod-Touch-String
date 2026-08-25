@@ -42,6 +42,8 @@ void Panel::ProcessControls(float dt)
 
     link_.Tick(dt);
 
+    if(midi_settle_ > 0.0f) midi_settle_ -= dt;
+
     if(model_.Panicked()) panic_flash_ = 1.0f;
 }
 
@@ -51,9 +53,34 @@ void Panel::ProcessMidi()
     while(pod_->midi.HasEvents())
     {
         MidiEvent m = pod_->midi.PopEvent();
+
+        // Still settling: drain the queue but act on none of it.
+        if(midi_settle_ > 0.0f)
+        {
+#if TS_DEBUG
+            midi_.discarded++;
+#endif
+            continue;
+        }
         // libDaisy reports the channel 0-based; the Weather Station's own
         // documentation counts from one, and so does everything in config.h.
         const uint8_t ch = static_cast<uint8_t>(m.channel + 1);
+
+#if TS_DEBUG
+        midi_.last_type = static_cast<uint8_t>(m.type);
+        midi_.last_ch   = ch;
+        midi_.last_d0   = m.data[0];
+        midi_.last_d1   = m.data[1];
+        switch(m.type)
+        {
+            case NoteOn: midi_.notes_on++; break;
+            case NoteOff: midi_.notes_off++; break;
+            case ControlChange: midi_.ccs++; break;
+            case PitchBend: midi_.bends++; break;
+            case SystemRealTime: midi_.clocks++; break;
+            default: midi_.other++; break;
+        }
+#endif
 
         switch(m.type)
         {

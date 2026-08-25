@@ -95,6 +95,19 @@ class Engine
     // pattern, since everything that decides it happens in the audio callback.
     bool  TakePluck();
     float Peak() const { return peak_; }
+
+#if TS_DEBUG
+    // Per-stage peak meters, so a scream can be traced to the stage that is
+    // making it instead of guessed at. Cleared on read.
+    struct Stages { float vox, dry, wet, out; };
+    uint32_t Plucks() const { return pluck_count_; }
+    Stages TakeStages()
+    {
+        const Stages s = stages_;
+        stages_        = { 0, 0, 0, 0 };
+        return s;
+    }
+#endif
     uint8_t Density() const { return pattern_.Onsets(); }
 
   private:
@@ -138,6 +151,10 @@ class Engine
 
     bool  plucked_ = false;
     float peak_    = 0.0f;
+#if TS_DEBUG
+    Stages   stages_      = { 0, 0, 0, 0 };
+    uint32_t pluck_count_ = 0;
+#endif
 };
 
 } // namespace tspod

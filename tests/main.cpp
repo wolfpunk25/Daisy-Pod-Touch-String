@@ -648,6 +648,72 @@ static void TestAudio()
 }
 
 // ============================================================================
+// 8b. Boot silence — the state every other audio test skipped past
+// ============================================================================
+// Every audio test above plucks a note first, so the state the instrument
+// actually spends its first seconds in was never rendered once. The board
+// screamed at boot and nothing here objected. It turned out to be a linkage
+// problem rather than a DSP one, so this test could not have caught THAT — but
+// "does it make a noise before anyone has asked it to" is a question a test
+// suite should be able to answer, and this one could not.
+static void TestBootSilence()
+{
+    Section("Boot silence");
+
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        const Render r = RenderFor(e, 3.0f);
+        printf("  Init only, no note:            peak %.1f dBFS\n", Db(r.peak));
+        Check(r.peak == 0.0f, "a freshly initialised engine is digitally silent");
+        Check(r.plucks == 0, "and nothing plucks by itself");
+    }
+
+    // The same thing the board actually boots into: the control model pushing
+    // every boot value through before a note exists.
+    {
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.5f, 0.5f);
+        const Render r = RenderFor(e, 3.0f);
+        printf("  Init + panel boot values:      peak %.1f dBFS\n", Db(r.peak));
+        Check(r.peak == 0.0f, "and still silent once the panel has pushed kBoot");
+    }
+
+    // Note-offs alone must not make a sound. The MIDI socket delivers a burst of
+    // 128 of them as the UART settles, every single boot — measured on hardware,
+    // not imagined — so this is a real input, not a hypothetical one.
+    {
+        Engine       e;
+        ControlModel m;
+        WeatherLink  w;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.5f, 0.5f);
+        w.Init(&e, &m);
+        for(int i = 0; i < 128; i++) w.NoteOff(kChMain, static_cast<uint8_t>(i));
+        const Render r = RenderFor(e, 2.0f);
+        printf("  after 128 stray note-offs:     peak %.1f dBFS\n", Db(r.peak));
+        Check(r.peak == 0.0f, "128 stray note-offs produce no sound");
+        Check(r.plucks == 0, "and no plucks");
+    }
+
+    // Arp on, latched, but nothing held: the sequencer must not run on an empty
+    // chord.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetArpOn(true);
+        e.SetLatch(true);
+        e.SetTempo(0.8f);
+        const Render r = RenderFor(e, 3.0f);
+        printf("  arp on and latched, no notes:  peak %.1f dBFS\n", Db(r.peak));
+        Check(r.peak == 0.0f, "an armed arp with an empty chord stays silent");
+        Check(r.plucks == 0, "and never triggers");
+    }
+}
+
+// ============================================================================
 // 9. The brightness ceiling upstream could not explain
 // ============================================================================
 // upstream/vox.h: "With high brightness and pitch the osc crashes. Limiting
@@ -783,6 +849,7 @@ int main(int argc, char** argv)
     TestControlModel();
     TestWeatherLink();
     TestAudio();
+    TestBootSilence();
     TestBrightnessCeiling();
     TestLevels();
 

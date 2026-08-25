@@ -133,6 +133,9 @@ void Engine::Pluck(uint8_t note, bool humanize_pitch)
     ApplyStringHumanize();
     vox_.NoteOn(scale_.Freq(n));
     plucked_ = true;
+#if TS_DEBUG
+    pluck_count_++;
+#endif
 }
 
 // ── The humanizer ───────────────────────────────────────────────────────────
@@ -249,11 +252,13 @@ bool Engine::TakePluck()
 void Engine::Process(float* out_l, float* out_r, size_t size)
 {
     clock_.Tick();
+    space_.Tick(size);
 
     float peak = 0.0f;
     for(size_t i = 0; i < size; i++)
     {
-        const float dry = drive_.Process(vox_.Process()) * volume_;
+        const float raw = vox_.Process();
+        const float dry = drive_.Process(raw) * volume_;
 
         // Upstream feeds the reverb through the crossfade and adds the dry
         // signal back at full level — so the "mix" is really a send, and the
@@ -270,6 +275,18 @@ void Engine::Process(float* out_l, float* out_r, size_t size)
 
         const float a = fabsf(l) > fabsf(r) ? fabsf(l) : fabsf(r);
         if(a > peak) peak = a;
+
+#if TS_DEBUG
+        auto hold = [](float& slot, float v) {
+            v = fabsf(v);
+            if(!(v <= 1e9f)) v = 1e9f;   // catches NaN too: NaN fails every test
+            if(v > slot) slot = v;
+        };
+        hold(stages_.vox, raw);
+        hold(stages_.dry, dry);
+        hold(stages_.wet, wl);
+        hold(stages_.out, l);
+#endif
     }
     peak_ = peak;
 }

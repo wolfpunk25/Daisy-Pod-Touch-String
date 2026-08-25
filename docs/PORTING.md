@@ -184,6 +184,85 @@ Measured figures worth keeping:
 * Peak output across the drive range: **−9.2 to −4.6 dBFS**, nothing clipped.
 * Reverb and drive at maximum for 12 s: **−1.6 dBFS**, finite throughout.
 
+## The scream, and why the host could not see it
+
+The first hardware build screamed continuously from power-on. It is worth writing
+down because the cause was not in this repository's source at all, and because
+the shape of the mistake is easy to repeat.
+
+**What the board said.** A `DEBUG=1` build with per-stage peak meters — added for
+exactly this — reported, at the first log line after boot:
+
+```
+lvl vox 6579 dry 3645 wet 1685 out 999
+midi on 0 off 128 cc 0 bend 0 srt 0 oth 0
+```
+
+The meters are thousandths of full scale. The string voice was producing **6.5×
+full scale** with **zero note-ons** and nothing held; `out 999` is `SoftLimit`
+pinned at the ceiling. So it was not the reverb self-oscillating, and it was not
+MIDI garbage triggering plucks — the two hypotheses worth having beforehand, and
+both wrong.
+
+**What it actually was.** libDaisy and DaisySP had been *copied* as prebuilt
+`.a` archives from a sibling Pod project to save a build, and then compiled
+against this checkout's headers. Same DaisySP commit, both trees clean — which is
+what made it look safe. It is not: objects built elsewhere carry that build's
+struct layouts, and linking them against different headers puts `SetFreq`,
+`SetDamping` and the rest at the wrong member offsets inside `StringVoice`. A
+Karplus-Strong loop whose damping coefficient lands in the wrong field is a string
+that rings without being plucked.
+
+`rm -rf libDaisy/build DaisySP/build && make libs` and the meters went flat.
+
+**Why every host test passed.** The host build compiles DaisySP from source, so it
+could never reproduce a linkage fault in the target build. Three things were
+eliminated before that landed, each cheap and each worth eliminating: `-ffast-math`
+(the host is silent with the target's exact flags), uninitialised delay-line state
+(`KarplusString::Init` calls `Reset()`), and stale coefficient caching.
+
+**The test gap it exposed was real but separate.** Every audio test plucked a note
+first, so the state the instrument spends its first seconds in had never been
+rendered once. `TestBootSilence` now covers it: a freshly initialised engine, the
+same engine after the panel has pushed `kBoot`, an armed and latched arp with an
+empty chord, and 128 stray note-offs — all asserted digitally silent. That test
+would not have caught this bug. It would catch the DSP version of it.
+
+**Do not copy build artefacts between projects.** `make libs` in the project that
+is going to link them, every time.
+
+## The startup MIDI burst
+
+Measured, not theorised: **128 note-off messages arrive on every boot**, on
+channel 1, note 0, velocity 0, with nothing plugged into the socket. The count is
+identical run to run. It is the UART settling as `StartReceive()` comes up.
+
+Note-offs are harmless — they cannot pluck anything — but a stray note-on would
+pluck the string before anyone touched it, and a stray controller would move a
+parameter out from under the panel. `Panel` therefore drains and discards
+everything off the socket for the first **250 ms**, and counts what it threw away
+so the `DEBUG=1` log can show it.
+
+## CPU
+
+Idle cost was **33% mean / 39-41% peak** with nothing playing and the arp off —
+high for a monophonic string and a reverb. Two independent causes, both the same
+mistake in different hands:
+
+1. **This port's own.** `Space::Process` evaluated two `sinf` per sample for line
+   modulators running at **0.09 and 0.13 Hz**. A sub-1 Hz sine sampled 48,000
+   times a second is pure waste; `Space::Tick(block_size)` now advances both
+   phases once per block and holds the values across it. A block is 83 us and
+   nothing at 0.1 Hz notices. The Terrarium Pod port halved its CPU on exactly
+   this class of finding.
+
+2. **DaisySP's.** `StringVoice::Process` calls `string_.SetBrightness()` and
+   `string_.SetDamping()` **on every sample**, and unpatched `KarplusString`
+   recomputes a `powf` and an `atanf` inside each. The ZenTouch Pod port found
+   this and carries a patch for it in `patches/daisysp-karplus-string.patch`.
+   Not applied here — patching a submodule complicates the build, and it is only
+   worth doing if the measured figure still calls for it.
+
 ## Still unproven
 
 Everything about how it feels, because none of it has been on hardware yet:
