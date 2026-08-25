@@ -263,6 +263,63 @@ mistake in different hands:
    Not applied here — patching a submodule complicates the build, and it is only
    worth doing if the measured figure still calls for it.
 
+## What the hardware said
+
+A 115-second `DEBUG=1` capture of real playing — 2408 log lines covering all
+three arp modes, all four pages, the setup layer and the Weather Station.
+
+**CPU is flat.** 30% mean / 37% peak sitting idle; 31% / 40% with the arp dense,
+a chord held, the reverb up and notes arriving over MIDI. Playing it costs
+almost nothing over doing nothing, because `StringVoice` and the reverb tank both
+run every sample whether or not anything has been triggered — the idle figure IS
+the cost. **So DaisySP's per-sample `powf`/`atanf` is not worth patching around**:
+40% peak leaves plenty of headroom, and vendoring or patching a submodule to buy
+headroom nobody needs is a bad trade. The measurement is what settles it, and it
+would have been easy to assume the opposite.
+
+**The Weather Station link works.** 120 note-ons and 120 note-offs, exactly
+balanced — no hung notes across two minutes of real playing — plus 6 controllers
+and the 128 discarded startup bytes. Over a straight 3.5 mm TRS cable, with
+`DIN_CHANNEL = None`.
+
+**No cross-page leaks.** Every one of the eleven parameters was checked for
+movement while its own page or layer was not selected: brightness moved 40 times
+and timbre 44, both only on the String page; damping and drive only on Body;
+tempo, transposition and scale only inside the setup layer. Zero leaks — except
+one, on Chance, which turned out to be the CC74 bug below rather than a panel
+fault.
+
+**Output stayed in the rails.** Peak 0.588 of full scale, about −4.6 dBFS. The
+`SoftLimit` ceiling was never reached.
+
+## The controller collision the capture found
+
+The Weather Station's README documents **CC74** as the sun layer and **CC91** as
+the rain layer, so both were originally handled on channels 2 and 3 only. Its
+code does something else:
+
+```python
+for c in (CH_MAIN, CH_SUN):  cc(c, 74, bright)
+for c in (CH_MAIN, CH_RAIN): cc(c, 91, wet)
+```
+
+and `midi_panic()` sends both to all five channels. So a second copy of CC74
+arrived on channel 1, missed the sun handler, fell through to upstream's generic
+CC70-79 map — where 74 is "note randomisation" — and jammed **Chance**. Every
+time the sun came out, the instrument started throwing wrong notes.
+
+Both controllers are now matched on **number rather than channel**, which is also
+the more defensible reading: 74 and 91 are the standard brightness and
+reverb-send controllers, so anything else on the socket means the same thing by
+them. CC74 no longer reaches chance at all; upstream's 75 still does.
+
+**The lesson is about sources, not MIDI.** The behaviour was read out of the
+Weather Station's documentation when its code was sitting on the same disk. A
+capture of the real thing found in one pass what the prose had wrong. There is
+now a test that replays a full Weather Station panic — both controllers on all
+five channels at their documented resting values — and asserts that nothing on
+the panel moves.
+
 ## Still unproven
 
 Everything about how it feels, because none of it has been on hardware yet:
@@ -273,7 +330,10 @@ Everything about how it feels, because none of it has been on hardware yet:
 * **The gesture timings** — 0.4 s for the setup layer, 1.2 s for panic.
 * **Whether the pluck flash is legible** at sixteenths, where notes are 68 ms
   apart at the top of the tempo range.
-* **CPU.** No figure exists yet. Get one from a `DEBUG=1` serial capture.
-* **The Weather Station link itself.** The mapping is written and tested against
-  synthetic messages; no real cable has been in the socket.
+* **Density and Shift.** The Pattern page was on screen for about a second of
+  the whole capture, so those two are the only panel parameters never moved on
+  hardware.
+* **Pitch bend.** The capture recorded none — the Weather Station only bends
+  during WIND weather, which was never held.
+* **MIDI clock.** Nothing on the socket sends it; the Weather Station does not.
 * **The brightness ceiling**, above.

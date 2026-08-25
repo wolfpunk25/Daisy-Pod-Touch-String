@@ -51,18 +51,35 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
     }
 
     // ── The Weather Station's own controllers ───────────────────────────────
-    if(channel == kChSun && number == 74)
+    // These are matched on CONTROLLER NUMBER, not on channel.
+    //
+    // Getting that wrong was a real bug, caught by a hardware capture rather
+    // than by reading the docs: the Weather Station's README describes CC74 as
+    // the sun layer and CC91 as the rain layer, so both were originally handled
+    // only on channels 2 and 3. Its code sends them to CH_MAIN as well —
+    // `for c in (CH_MAIN, CH_SUN): cc(c, 74, bright)` — and its panic sends both
+    // to all five channels. So every time the sun came out, the copy on channel 1
+    // fell through to upstream's generic map below and landed on CHANCE, which
+    // starts throwing wrong notes. Sunshine randomising the melody is not the
+    // metaphor anyone wanted.
+    //
+    // Matching on number is also the more defensible reading: 74 and 91 are the
+    // standard brightness and reverb-send controllers, so anything else on the
+    // socket means the same thing by them.
+    if(number == 74)
     {
         model_->SetMod(Param::Brightness, Bipolar(value, 64) * kSunBrightnessDepth);
         return;
     }
-    if(channel == kChRain && number == 91)
+    if(number == 91)
     {
         model_->SetMod(Param::Reverb, Bipolar(value, 40) * kRainReverbDepth);
         return;
     }
-    if(channel == kChWind && number == 1)
+    if(number == 1)
     {
+        // Wind's gusts. It sends CC1 on the main channel too, at a lower depth,
+        // and either should make the string wander — so this is by number as well.
         model_->SetMod(Param::Chance, Bipolar(value, 0) * kWindChanceDepth);
         return;
     }
@@ -73,9 +90,6 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
     // engine, so the panel's own value moves with them and the next turn of the
     // knob carries on from where MIDI left it.
     //
-    // CC74 is the one collision: it is "note randomisation" in upstream's map and
-    // "brightness" in the Weather Station's. The channel settles it — the sun
-    // layer is handled above and returns before reaching here.
     const float v = Norm(value);
     switch(number)
     {
@@ -83,9 +97,9 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
         case 71: model_->SetNorm(Param::Transpose, v); break;
         case 72: model_->SetNorm(Param::Timbre, v); break;
         case 73: model_->SetNorm(Param::Density, v); break;
-        // Upstream spends 74 and 75 on its two randomisation knobs; there is one
-        // control here, so either reaches it.
-        case 74:
+        // Upstream spends 74 and 75 on its two randomisation knobs. 74 is
+        // handled above as brightness, which is what the rest of the world means
+        // by it, so only 75 reaches chance here.
         case 75: model_->SetNorm(Param::Chance, v); break;
         case 76: model_->SetNorm(Param::Damping, v); break;
         case 77: model_->SetNorm(Param::Reverb, v); break;

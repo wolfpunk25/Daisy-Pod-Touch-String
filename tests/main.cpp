@@ -564,6 +564,51 @@ static void TestWeatherLink()
     w.ControlChange(kChRain, 91, 127);
     Check(m.Mod(Param::Reverb) > 0.4f, "and wets the reverb above it");
 
+    // The regression that a hardware capture found and the docs hid.
+    // The Weather Station's README describes CC74 as the sun layer, but its code
+    // sends it on CH_MAIN as well, and its panic sends it on all five channels.
+    // Handled by channel, the copy on channel 1 fell through to upstream's
+    // generic map and jammed CHANCE — so the sun coming out started throwing
+    // wrong notes.
+    {
+        const float chance_before = m.Norm(Param::Chance);
+        w.ControlChange(kChMain, 74, 96);   // exactly what update_timbre() sends
+        CheckNear(m.Norm(Param::Chance), chance_before, 1e-6f,
+                  "CC74 on the main channel does not touch chance");
+        Check(m.Mod(Param::Brightness) > 0.1f,
+              "it opens the brightness, the same as it does on the sun channel");
+    }
+    {
+        // ...and the same for rain's CC91, which also arrives on CH_MAIN.
+        w.ControlChange(kChSun, 74, 64);    // back to neutral first
+        const float verb_before = m.Norm(Param::Reverb);
+        w.ControlChange(kChMain, 91, 88);
+        CheckNear(m.Norm(Param::Reverb), verb_before, 1e-6f,
+                  "CC91 on the main channel modulates rather than overwriting");
+        Check(m.Mod(Param::Reverb) > 0.1f, "and wets the reverb");
+        w.ControlChange(kChMain, 91, 40);
+    }
+    {
+        // A whole Weather Station panic: both controllers on all five channels,
+        // at their documented resting values. Nothing on the panel may move.
+        const float before[3] = { m.Norm(Param::Chance), m.Norm(Param::Brightness),
+                                  m.Norm(Param::Reverb) };
+        for(uint8_t c = 1; c <= 5; c++)
+        {
+            w.ControlChange(c, 1, 0);
+            w.ControlChange(c, 7, 100);
+            w.ControlChange(c, 10, 64);
+            w.ControlChange(c, 74, 64);
+            w.ControlChange(c, 91, 40);
+        }
+        CheckNear(m.Norm(Param::Chance), before[0], 1e-6f, "a panic leaves chance alone");
+        CheckNear(m.Norm(Param::Brightness), before[1], 1e-6f, "and brightness");
+        CheckNear(m.Norm(Param::Reverb), before[2], 1e-6f, "and reverb");
+        CheckNear(m.Mod(Param::Brightness), 0.0f, 1e-6f,
+                  "and leaves no modulation behind");
+        CheckNear(m.Mod(Param::Reverb), 0.0f, 1e-6f, "on either controller");
+    }
+
     // Panic.
     w.ControlChange(kChMain, 123, 0);
     Check(!e.IsHeld(51), "CC123 clears every held note");
