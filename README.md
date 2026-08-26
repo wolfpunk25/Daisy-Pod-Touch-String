@@ -11,6 +11,9 @@ answer to what that costs.
 
 ---
 
+**[Field guide](https://claude.ai/code/artifact/a1dc158a-afd1-4df5-bf6b-3cb45410e746)** — every control, the LED language, the Weather Station
+mapping and four places to start, on one page.
+
 ## The instrument
 
 One Karplus-Strong string, hit over and over by an arpeggiator. What you hold
