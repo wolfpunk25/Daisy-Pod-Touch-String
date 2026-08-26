@@ -168,6 +168,10 @@ class ControlModel
     float TouchLeft() const { return touch_left_; }
 
   private:
+    // Move every note the encoder pad put in over to the new scale's note for
+    // the same degree. See the definition for why this cannot live in Engine.
+    void RetunePadNotes();
+
     void PushAll();
     void PushParam(Param p);
     void RearmKnobs(float k1, float k2);
@@ -183,6 +187,15 @@ class ControlModel
     uint8_t scale_            = 0;
 
     RelKnob k1_, k2_;
+
+    // The actual MIDI note the pad issued for each degree, or kNoPadNote. The
+    // pad's notes are degrees wearing note numbers and have to follow the scale;
+    // notes off the MIDI socket are absolute and must not be touched. Nothing
+    // downstream can tell the two apart once they are in the held set, so the
+    // distinction is remembered here, where it is made.
+    static constexpr uint8_t kNoPadNote = 0xff;
+    uint8_t pad_note_[kScaleSize] = { kNoPadNote, kNoPadNote, kNoPadNote, kNoPadNote,
+                                      kNoPadNote, kNoPadNote, kNoPadNote, kNoPadNote };
 
     // Button and encoder edge state.
     bool  b1_ = false, b2_ = false, enc_ = false;

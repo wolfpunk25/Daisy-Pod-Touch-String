@@ -89,6 +89,39 @@ void ControlModel::PushParam(Param p)
     }
 }
 
+// Upstream identifies a note by its scale DEGREE, so changing the scale retunes
+// whatever is sounding the instant it changes. This port identifies a note by its
+// MIDI note number — which is the whole reason the MIDI socket can play it — and
+// the pad resolves a degree to an absolute note at the moment of the press.
+// Nothing revisited it afterwards, so the scale control moved a number in the
+// debug log and changed nothing anyone could hear on a held chord. Reported from
+// the board as "I'm not sure the scale is changing", which is exactly what a
+// control that works but is inaudible feels like.
+//
+// This cannot live in Engine, because by the time a note reaches the held set
+// there is no longer anything to say whether it came from a degree or off the
+// wire — and notes off the wire must NOT be dragged around by the scale control.
+// The pad is the only thing that knows, so the pad is what fixes it up.
+void ControlModel::RetunePadNotes()
+{
+    // With the arp off nothing is held; ToggleNote would fire a pluck instead,
+    // so a scale change would machine-gun the whole chord.
+    if(mode_ == ArpMode::Off) return;
+
+    for(uint8_t d = 0; d < kScaleSize; ++d)
+    {
+        const uint8_t old_note = pad_note_[d];
+        if(old_note == kNoPadNote) continue;
+
+        const uint8_t new_note = engine_->NoteForDegree(d);
+        if(new_note == old_note) continue;   // the scales agree on this degree
+
+        if(engine_->IsHeld(old_note)) engine_->ToggleNote(old_note);
+        if(!engine_->IsHeld(new_note)) engine_->ToggleNote(new_note);
+        pad_note_[d] = new_note;
+    }
+}
+
 void ControlModel::PushAll()
 {
     for(int i = 0; i < kNumParams; ++i) PushParam(static_cast<Param>(i));
@@ -169,6 +202,7 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
         if(!enc_consumed_ && enc_held_ >= kPanicSec)
         {
             engine_->AllNotesOff();
+            for(auto& n : pad_note_) n = kNoPadNote;
             enc_consumed_ = true;
             panicked_     = true;
             touch_left_   = 1.2f;
@@ -178,7 +212,12 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
     {
         if(!enc_consumed_)
         {
-            engine_->ToggleNote(engine_->NoteForDegree(degree_));
+            const uint8_t note = engine_->NoteForDegree(degree_);
+            engine_->ToggleNote(note);
+            // Remember it only while it is actually in the held set, so a note
+            // the pad has taken out again is not dragged along by a later scale
+            // change.
+            pad_note_[degree_] = engine_->IsHeld(note) ? note : kNoPadNote;
             touch_left_ = 1.0f;
         }
         enc_held_ = 0.0f;
@@ -193,8 +232,12 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
             int s = static_cast<int>(scale_) + enc_inc;
             if(s < 0) s = 0;
             if(s >= kScalesCount) s = kScalesCount - 1;
-            scale_ = static_cast<uint8_t>(s);
-            engine_->SetScaleIndex(scale_);
+            if(scale_ != static_cast<uint8_t>(s))
+            {
+                scale_ = static_cast<uint8_t>(s);
+                engine_->SetScaleIndex(scale_);
+                RetunePadNotes();
+            }
             b1_consumed_ = true;   // this was a setup gesture, not a mode tap
         }
         else

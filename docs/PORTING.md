@@ -320,6 +320,41 @@ now a test that replays a full Weather Station panic — both controllers on all
 five channels at their documented resting values — and asserts that nothing on
 the panel moves.
 
+## The scale control that worked and could not be heard
+
+Reported from the board as "I'm not sure the scale is changing" — which is
+exactly what a control that works but is inaudible feels like. The debug log had
+been showing `sc 0`, `sc 1`, `sc 2` all along, and a panel-leak analysis had
+cleared it. The number was moving. The sound was not.
+
+**It is a consequence of the note-identity rewrite, and it should have been
+followed through at the time.** Upstream identifies a note by its scale DEGREE,
+so changing the scale retunes whatever is sounding the instant it changes. Here a
+note is a MIDI note number, and the encoder pad resolves a degree to an absolute
+note at the moment of the press. Nothing revisited it afterwards — so a scale
+change only affected notes pressed *after* it, and a held chord carried on in the
+old scale. One degree in three appeared to follow, because degree 0 is MIDI 36 in
+all three scales and matched by coincidence.
+
+**The fix has to know where a note came from, and only one place does.** By the
+time a note reaches the held set there is nothing left to say whether it was a
+degree or arrived off the wire — and notes off the wire must NOT be dragged around
+by the scale control, because the Weather Station's own six scales and four
+octaves are the entire point of passing its pitches through. So `ControlModel`
+remembers the note it issued for each degree and moves exactly those, and
+`Engine` stays out of it.
+
+Two tests, and the second matters more than the first: a pad chord follows the
+scale with no stale notes left ringing, and three MIDI notes deliberately outside
+every scale stay exactly where they are while a pad note alongside them moves.
+
+**The lesson is about the shape of the original claim.** The porting notes said the
+note-identity rewrite was safe because the pitches came out identical — and they
+did, to 0.041 cents. What that test could not see is that *identical pitches* is
+not the same as *identical behaviour*: upstream's degrees are late-bound and this
+port's note numbers are early-bound, and everything downstream of that difference
+had to be checked, not just the frequencies.
+
 ## Still unproven
 
 Everything about how it feels, because none of it has been on hardware yet:

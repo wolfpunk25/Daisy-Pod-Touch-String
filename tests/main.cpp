@@ -509,6 +509,116 @@ static void TestControlModel()
 }
 
 // ============================================================================
+// 6b. Changing the scale has to be audible on notes already held
+// ============================================================================
+// Upstream identifies a note by its scale DEGREE, so changing the scale retunes
+// whatever is sounding, instantly. This port identifies a note by its MIDI note
+// number — which is what lets the Weather Station play it at all — and the
+// degree is resolved to an absolute note at the moment the encoder is pressed.
+// Nothing revisits it afterwards, so the scale control moved a number in the log
+// and changed nothing anyone could hear.
+static void TestScaleRetunes()
+{
+    Section("Scale changes retune what is held");
+
+    Engine       e;
+    ControlModel m;
+    e.Init(kSR, kBlock);
+    m.Init(&e, 0.5f, 0.5f);
+
+    const float dt = 0.001f;
+    auto tap_b1 = [&] {
+        m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    };
+    auto press_enc = [&] {
+        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    };
+    auto to_degree = [&](int d) {
+        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), 0, dt);
+    };
+
+    tap_b1();   // arp on
+    Check(m.Mode() == ArpMode::On, "arp on");
+
+    // Build a chord on the encoder pad.
+    for(int d : { 0, 2, 4 })
+    {
+        to_degree(d);
+        press_enc();
+    }
+    std::vector<int> before;
+    for(int d = 0; d < kScaleSize; d++)
+        if(e.IsHeld(e.NoteForDegree(d))) before.push_back(d);
+    Check(before.size() == 3, "three degrees held");
+
+    // Now hold button 1 and turn the encoder to the next scale.
+    for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+    Check(m.SetupLayer(), "setup layer open");
+    const uint8_t scale_before = e.ScaleIndex();
+    m.Read(true, false, 0.5f, 0.5f, 1, false, dt);
+    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    Check(e.ScaleIndex() == scale_before + 1, "the scale index moved");
+
+    // ...and the chord must have moved with it. The degrees held should be the
+    // same three, but now sounding the NEW scale's notes for them.
+    int matched = 0, stale = 0;
+    for(int d : { 0, 2, 4 })
+        if(e.IsHeld(e.NoteForDegree(d))) matched++;
+    for(uint8_t n = 0; n < 128; n++)
+    {
+        if(!e.IsHeld(n)) continue;
+        bool belongs = false;
+        for(int d = 0; d < kScaleSize; d++)
+            if(e.NoteForDegree(d) == n) belongs = true;
+        if(!belongs) stale++;
+    }
+    printf("  after the scale change: %d of 3 degrees still held, %d stale notes\n",
+           matched, stale);
+    Check(matched == 3, "the same three degrees are held in the new scale");
+    Check(stale == 0, "and no note from the old scale is left ringing");
+
+    // The other half, and the more important one: notes off the MIDI socket are
+    // ABSOLUTE. The Weather Station has its own six scales and four octaves, and
+    // the whole point of passing its pitches through is that they mean what it
+    // says they mean. The scale control must not drag them anywhere.
+    {
+        Engine       e2;
+        ControlModel m2;
+        WeatherLink  w2;
+        e2.Init(kSR, kBlock);
+        m2.Init(&e2, 0.5f, 0.5f);
+        w2.Init(&e2, &m2);
+
+        m2.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);   // arp on
+
+        // Three notes that are deliberately NOT in any of the three scales.
+        const uint8_t wire[3] = { 61, 66, 73 };
+        for(uint8_t n : wire) w2.NoteOn(kChMain, n, 100);
+        // ...and one from the pad alongside them.
+        m2.Read(false, false, 0.5f, 0.5f, 2, false, dt);
+        m2.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        const uint8_t pad_before = e2.NoteForDegree(2);
+
+        for(int i = 0; i < 600; i++) m2.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+        m2.Read(true, false, 0.5f, 0.5f, 1, false, dt);
+        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+
+        int kept = 0;
+        for(uint8_t n : wire)
+            if(e2.IsHeld(n)) kept++;
+        Check(kept == 3, "MIDI notes are untouched by a scale change");
+        Check(!e2.IsHeld(pad_before) || e2.NoteForDegree(2) == pad_before,
+              "while the pad's own note moved with the scale");
+        Check(e2.IsHeld(e2.NoteForDegree(2)),
+              "and the pad's degree is still held in the new scale");
+    }
+}
+
+// ============================================================================
 // 7. The Weather Station link
 // ============================================================================
 static void TestWeatherLink()
@@ -892,6 +1002,7 @@ int main(int argc, char** argv)
     TestLatch();
     TestClock();
     TestControlModel();
+    TestScaleRetunes();
     TestWeatherLink();
     TestAudio();
     TestBootSilence();
