@@ -355,6 +355,71 @@ not the same as *identical behaviour*: upstream's degrees are late-bound and thi
 port's note numbers are early-bound, and everything downstream of that difference
 had to be checked, not just the frequencies.
 
+## Two bugs the first real play session found
+
+**The LEDs flickered.** `daisy::Led::Update()` is:
+
+```cpp
+pwm_ += 120.f / samplerate_;
+hw_pin_.Write(bright_ > pwm_ ? on_ : off_);
+```
+
+The carrier is **hardcoded at 120 Hz** whatever rate you call it at — the
+`samplerate` argument does not raise it, it only holds the carrier AT 120 Hz as
+the call rate changes. 120 Hz is inside the band the eye catches, especially
+peripherally and across a saccade. Reported as "the LEDs are flickering
+constantly, it hurts my eyes", and it was right.
+
+This port made it worse. `Update()` was called once per audio SAMPLE — four times
+in a burst inside each block — so the pin physically changed only at the block
+boundary and three of every four writes were invisible. The phase advanced by
+exactly four each block, so the comparison always landed on the same residues,
+throwing away most of the resolution the fast calls were meant to buy. That
+pattern was inherited from the Wrangler Pod port without checking what it did.
+
+`hw/pod_leds.h` now owns the PWM: one comparison per audio block, which is the
+fastest the pins can actually change, and 24 steps — **500 Hz carrier, 24
+brightness levels**, every panel value landing on a distinct step. Idle CPU fell
+from 30/37% to **26/33%** as a side effect of dropping three quarters of the pin
+writes.
+
+**Pressing the encoder added no notes.** Diagnosed in a single capture, by a log
+line built to discriminate three causes at once:
+
+```
+mode 0 ... enc down 0  toggles 3  panics 0  notes 0
+plucks 3
+```
+
+Three presses, three toggles, no panics — so the press detection was never the
+problem — and **zero notes held**. The cause is `mode 0`: with the arp off,
+`ToggleNote` fired a one-shot pluck and deliberately held nothing. Arp-off is the
+boot state, so the first thing anyone tries got one quiet low blip and no note.
+
+The pad now maintains the held set in **every** mode, so a chord built with the
+sequencer off is already there when the arp is switched on, and `SetArpOn` starts
+or stops the clock around it without clearing the chord.
+
+**And the test for that found a second bug.** Cycling the arp mode from Latched
+back to Off silently wiped the whole pad chord. `Latch::SetOn(false)` drops every
+note that is held but not physically `down_` — right for a keyboard, but the
+encoder is a toggle switch and its notes were never marked down, so they were
+swept up every time round the mode cycle. `Latch` now tracks pad-owned notes in
+their own bitset: they survive mode changes and leave only on another toggle or a
+panic.
+
+**A measurement that misled, in my own log.** The same capture showed
+`lvl vox 25` — 0.025, about -32 dBFS — and it looked like the pluck was nearly
+inaudible. It is not: on the host a boot-state pluck peaks at **-16.4 dBFS**. The
+level meters are windowed and reset every log tick, while `plucks` is cumulative,
+so a line reading `plucks 3` alongside a low level is a later tick showing the
+decay tail, not the attack. Worth fixing in the log format; worth remembering that
+a diagnostic can lie about the thing it was added to measure.
+
+Degree 0 is genuinely the quiet one, though — 65 Hz, and **4 to 7 dB below the
+top of the scale** across all three scales. It is also the boot degree, which is
+part of why "nothing happens" was a fair description.
+
 ## Still unproven
 
 Everything about how it feels, because none of it has been on hardware yet:

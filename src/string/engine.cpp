@@ -40,15 +40,16 @@ void Engine::NoteOn(uint8_t note)
 #if TS_QUANTIZE_MIDI_NOTES
     note = scale_.Quantize(note);
 #endif
+    // The held set is maintained in every mode, exactly as for the encoder pad,
+    // so turning the arp on picks up whatever is already down instead of waiting
+    // for the next note.
+    latch_.NoteOn(note);
     if(!arp_on_)
     {
-        // Arp off: the string is played directly and nothing is remembered.
-        // Upstream does the same — with no sequencer running there is nothing
-        // for a held note to mean.
+        // No sequencer to run, so play it straight through.
         Pluck(note, false);
         return;
     }
-    latch_.NoteOn(note);
     StartOrStop();
 }
 
@@ -58,18 +59,44 @@ void Engine::NoteOff(uint8_t note)
     note = scale_.Quantize(note);
 #endif
     latch_.NoteOff(note);
+    if(arp_on_) StartOrStop();
+}
+
+// The encoder pad. It ALWAYS maintains the held set, in every mode.
+//
+// It used to pluck once and hold nothing when the arp was off, which is the
+// boot state — so the very first thing anyone tries is pressing the encoder,
+// and the answer was one quiet blip and no note. Reported, fairly, as "pressing
+// the encoder doesn't add any notes"; the diagnostic log showed three toggles,
+// no panics and zero notes held, which is exactly that behaviour working as
+// written and being wrong.
+//
+// Now the chord you build survives turning the arp on, which is the order
+// anyone would reach for it in.
+void Engine::ToggleNote(uint8_t note)
+{
+    const bool was_held = latch_.IsHeld(note);
+    latch_.Toggle(note);
+
+    if(!arp_on_)
+    {
+        // No sequencer to run — but pluck it once so adding a note makes a
+        // sound. Removing one does not.
+        if(!was_held) Pluck(note, false);
+        return;
+    }
     StartOrStop();
 }
 
-void Engine::ToggleNote(uint8_t note)
+// Turning the arp on has to pick up whatever is already held, and turning it off
+// has to stop the clock WITHOUT dropping the chord — ResetSequence() clears the
+// arp, which would throw away notes the player put there deliberately.
+void Engine::SetArpOn(bool on)
 {
-    if(!arp_on_)
-    {
-        Pluck(note, false);
-        return;
-    }
-    latch_.Toggle(note);
-    StartOrStop();
+    if(arp_on_ == on) return;
+    arp_on_ = on;
+    if(on) StartOrStop();
+    else StopSequence();
 }
 
 void Engine::AllNotesOff()
@@ -105,6 +132,14 @@ void Engine::StartOrStop()
     {
         ResetSequence();
     }
+}
+
+// Stop the clock and rewind the pattern, but keep the held notes.
+void Engine::StopSequence()
+{
+    clock_.Stop();
+    trigger_.Reset();
+    pattern_.Reset();
 }
 
 void Engine::ResetSequence()

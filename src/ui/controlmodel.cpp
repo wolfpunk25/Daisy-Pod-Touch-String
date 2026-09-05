@@ -47,6 +47,15 @@ int8_t ControlModel::TransposeSemis() const
     return static_cast<int8_t>(n);
 }
 
+uint16_t ControlModel::HeldCount() const
+{
+    if(!engine_) return 0;
+    uint16_t n = 0;
+    for(int i = 0; i < 128; ++i)
+        if(engine_->IsHeld(static_cast<uint8_t>(i))) n++;
+    return n;
+}
+
 bool ControlModel::DegreeHeld() const
 {
     return engine_ && engine_->IsHeld(engine_->NoteForDegree(degree_));
@@ -203,6 +212,7 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
         {
             engine_->AllNotesOff();
             for(auto& n : pad_note_) n = kNoPadNote;
+            panics_++;
             enc_consumed_ = true;
             panicked_     = true;
             touch_left_   = 1.2f;
@@ -218,6 +228,7 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
             // the pad has taken out again is not dragged along by a later scale
             // change.
             pad_note_[degree_] = engine_->IsHeld(note) ? note : kNoPadNote;
+            toggles_++;
             touch_left_ = 1.0f;
         }
         enc_held_ = 0.0f;

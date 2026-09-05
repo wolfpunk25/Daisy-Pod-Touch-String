@@ -78,11 +78,17 @@ class Latch
         {
             held_.reset(num);
             down_.reset(num);
+            pad_.reset(num);
             if(off_) off_(num);
         }
         else
         {
             held_.set(num);
+            // Mark it as the pad's. A pad note is a switch that has been left
+            // on, not a key somebody is leaning on, so it is not "untouched" and
+            // must survive coming out of the latch — otherwise cycling the arp
+            // mode silently wipes a chord the player built one press at a time.
+            pad_.set(num);
             if(on_) on_(num);
         }
     }
@@ -96,13 +102,14 @@ class Latch
             if(held_.test(i) && off_) off_(static_cast<uint8_t>(i));
         held_.reset();
         down_.reset();
+        pad_.reset();
     }
 
   private:
     void ReleaseUntouched()
     {
         for(int i = 0; i < kNotes; ++i)
-            if(held_.test(i) && !down_.test(i))
+            if(held_.test(i) && !down_.test(i) && !pad_.test(i))
             {
                 held_.reset(i);
                 if(off_) off_(static_cast<uint8_t>(i));
@@ -112,6 +119,7 @@ class Latch
     std::function<void(uint8_t)> on_, off_;
     std::bitset<kNotes>          held_;   // in the arp right now
     std::bitset<kNotes>          down_;   // physically down right now
+    std::bitset<kNotes>          pad_;    // put there by the encoder's toggle
     bool                         latched_ = false;
 };
 

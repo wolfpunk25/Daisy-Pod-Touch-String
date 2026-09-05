@@ -53,7 +53,7 @@ class Engine
     uint8_t NoteForDegree(uint8_t d) const { return scale_.NoteAt(d); }
 
     // ── Arp ─────────────────────────────────────────────────────────────────
-    void SetArpOn(bool on) { arp_on_ = on; }
+    void SetArpOn(bool on);
     bool ArpOn() const { return arp_on_; }
     void SetLatch(bool on);
     bool Latched() const { return latch_.On(); }
@@ -119,6 +119,7 @@ class Engine
     void OnArpNote(uint8_t note, uint8_t vel);
     void Pluck(uint8_t note, bool humanize_pitch);
     void ResetSequence();
+    void StopSequence();
     void StartOrStop();
 
     uint8_t HumanizedNote(uint8_t note);

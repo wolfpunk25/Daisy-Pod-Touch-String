@@ -619,6 +619,82 @@ static void TestScaleRetunes()
 }
 
 // ============================================================================
+// 6c. The encoder pad has to hold notes in every mode
+// ============================================================================
+// The boot state is arp OFF, so the first thing anyone does is press the encoder
+// — and it used to fire one quiet pluck and hold nothing, because ToggleNote
+// short-circuited whenever the sequencer was not running. Reported from the
+// board as "pressing the encoder doesn't add any notes". The diagnostic log
+// settled it in one capture: three toggles, zero panics, zero notes held.
+static void TestPadHoldsInEveryMode()
+{
+    Section("The pad holds notes with the arp off");
+
+    Engine       e;
+    ControlModel m;
+    e.Init(kSR, kBlock);
+    m.Init(&e, 0.5f, 0.5f);
+
+    const float dt = 0.001f;
+    auto press_enc = [&] {
+        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    };
+    auto to_degree = [&](int d) {
+        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), false, dt);
+    };
+    auto tap_b1 = [&] {
+        m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    };
+
+    Check(m.Mode() == ArpMode::Off, "boots with the arp off, as the board does");
+
+    // Build a chord with the sequencer still off.
+    for(int d : { 0, 2, 4 })
+    {
+        to_degree(d);
+        press_enc();
+    }
+    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(2))
+              && e.IsHeld(e.NoteForDegree(4)),
+          "three presses hold three notes even with the arp off");
+
+    // Adding a note makes a sound; nothing is sequencing yet. Drain the pluck
+    // flag the presses themselves set before asking whether anything REPEATS.
+    {
+        e.TakePluck();
+        const Render r = RenderFor(e, 1.0f);
+        Check(r.plucks == 0, "and nothing repeats while the arp is off");
+    }
+
+    // Pressing again takes a note back out.
+    to_degree(2);
+    press_enc();
+    Check(!e.IsHeld(e.NoteForDegree(2)), "pressing again removes it");
+    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(4)),
+          "and leaves the others alone");
+
+    // Now turn the arp on — the chord built beforehand must be picked up.
+    tap_b1();
+    Check(m.Mode() == ArpMode::On, "arp on");
+    const Render r = RenderFor(e, 2.0f);
+    printf("  plucks in 2 s after arming a chord built with the arp off: %d\n",
+           r.plucks);
+    Check(r.plucks > 4, "the chord built beforehand starts playing immediately");
+
+    // ...and turning it off again stops the sequence without losing the chord.
+    tap_b1();   // latched
+    tap_b1();   // off
+    Check(m.Mode() == ArpMode::Off, "arp off again");
+    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(4)),
+          "cycling the arp mode keeps the chord rather than dropping it");
+    e.TakePluck();
+    const Render r2 = RenderFor(e, 2.0f);
+    Check(r2.plucks == 0, "but stops the sequencer");
+}
+
+// ============================================================================
 // 7. The Weather Station link
 // ============================================================================
 static void TestWeatherLink()
@@ -1003,6 +1079,7 @@ int main(int argc, char** argv)
     TestClock();
     TestControlModel();
     TestScaleRetunes();
+    TestPadHoldsInEveryMode();
     TestWeatherLink();
     TestAudio();
     TestBootSilence();

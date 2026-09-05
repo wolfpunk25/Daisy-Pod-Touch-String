@@ -33,9 +33,10 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
 
     engine.Process(out[0], out[1], size);
 
-    // The LED PWM is driven from here, once per sample, which is what buys ~400
-    // brightness steps instead of daisy::RgbLed's eight. See hw/pod_leds.h.
-    for(size_t i = 0; i < size; i++) leds.Update();
+    // One PWM step per block. The pins cannot change faster than this anyway —
+    // calling it per sample only bunched four writes into a few microseconds and
+    // threw the extra resolution away. See hw/pod_leds.h.
+    leds.Update();
 
 #if TS_DEBUG
     cpu.OnBlockEnd();
@@ -51,7 +52,7 @@ int main(void)
     const float sr    = pod.AudioSampleRate();
     const float block = static_cast<float>(pod.AudioBlockSize());
 
-    leds.Init(sr);
+    leds.Init();
     leds.SelfTest();
 
     engine.Init(sr, block);
@@ -104,6 +105,10 @@ int main(void)
             const Panel::MidiTally& mt = panel.Midi();
             // The stage meters are in thousandths of full scale, so a screaming
             // stage is obvious and the one before it says where it came from.
+            pod.seed.PrintLine("enc down %d held_ms %d  toggles %d panics %d  notes %d",
+                               m.EncDown() ? 1 : 0,
+                               static_cast<int>(m.EncHeld() * 1000.0f),
+                               m.Toggles(), m.Panics(), m.HeldCount());
             pod.seed.PrintLine("plucks %d  lvl vox %d dry %d wet %d out %d",
                                static_cast<int>(engine.Plucks()),
                                static_cast<int>(st.vox * 1000.0f),

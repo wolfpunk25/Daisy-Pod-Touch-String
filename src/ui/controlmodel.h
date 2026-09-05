@@ -163,6 +163,15 @@ class ControlModel
     int8_t  TransposeSemis() const;
     bool    Panicked() const { return panicked_; }
 
+    // Enough to tell, from a serial capture, whether an encoder press is being
+    // seen at all, whether it is being read as a press or as a hold, and whether
+    // the toggle actually ran.
+    bool     EncDown() const { return enc_; }
+    float    EncHeld() const { return enc_held_; }
+    uint16_t Toggles() const { return toggles_; }
+    uint16_t Panics() const { return panics_; }
+    uint16_t HeldCount() const;
+
     // The last control to move, and how long it stays highlighted. With relative
     // knobs there is no pointer to look at, so the LEDs borrow this.
     float TouchLeft() const { return touch_left_; }
@@ -205,6 +214,9 @@ class ControlModel
     bool  panicked_    = false;
 
     float touch_left_ = 0.0f;
+
+    uint16_t toggles_ = 0;
+    uint16_t panics_  = 0;
 };
 
 } // namespace tspod
