@@ -69,6 +69,14 @@ void ControlModel::SetMod(Param p, float offset)
     PushParam(p);
 }
 
+void ControlModel::SetScaleIndex(uint8_t index)
+{
+    if(index >= kScalesCount || index == scale_) return;
+    scale_ = index;
+    engine_->SetScaleIndex(scale_);
+    RetunePadNotes();
+}
+
 void ControlModel::SetNorm(Param p, float value)
 {
     const int i = static_cast<int>(p);
@@ -248,12 +256,7 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
             int s = static_cast<int>(scale_) + enc_inc;
             if(s < 0) s = 0;
             if(s >= kScalesCount) s = kScalesCount - 1;
-            if(scale_ != static_cast<uint8_t>(s))
-            {
-                scale_ = static_cast<uint8_t>(s);
-                engine_->SetScaleIndex(scale_);
-                RetunePadNotes();
-            }
+            SetScaleIndex(static_cast<uint8_t>(s));
             b1_consumed_ = true;   // this was a setup gesture, not a mode tap
         }
         else

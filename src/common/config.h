@@ -46,6 +46,11 @@ static constexpr int8_t kTransMax =  12;
 // the tank in string/space.* is a local MIT one. See docs/PORTING.md.
 static constexpr float kReverbDamping = 0.55f;   // 0..1, higher = darker tail
 
+// The dedicated eight-note pad selects the scale with this controller, sending
+// the index (0..2) as the value. It is the master: both ends have to agree on
+// which note each button means, and the pad is the end with the display on it.
+static constexpr uint8_t kScaleSelectCC = 20;
+
 // ── MIDI ────────────────────────────────────────────────────────────────────
 // The Wolfpunk Weather Station's five-channel layout. It sends every layer to
 // both USB and the DIN socket; set DIN_CHANNEL = None on that end so the layers

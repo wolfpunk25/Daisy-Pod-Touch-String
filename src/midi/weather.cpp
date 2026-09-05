@@ -66,6 +66,13 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
     // Matching on number is also the more defensible reading: 74 and 91 are the
     // standard brightness and reverb-send controllers, so anything else on the
     // socket means the same thing by them.
+    // The eight-note pad's scale button. Raw index, not a normalised value.
+    if(number == kScaleSelectCC)
+    {
+        model_->SetScaleIndex(value);
+        return;
+    }
+
     if(number == 74)
     {
         model_->SetMod(Param::Brightness, Bipolar(value, 64) * kSunBrightnessDepth);

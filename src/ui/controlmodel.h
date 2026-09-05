@@ -149,6 +149,11 @@ class ControlModel
     // it instead of snapping back to a value nobody can see.
     void SetNorm(Param p, float value);
 
+    // Select a scale outright, moving the pad's chord with it. The dedicated
+    // eight-note pad is the master for scale: its scale button sends CC20 and
+    // the Pod follows, so both ends agree on which note each button means.
+    void SetScaleIndex(uint8_t index);
+
     // Panel rate, ~1 kHz. Raw control state in, everything else follows.
     void Read(bool btn1, bool btn2, float knob1, float knob2, int enc_inc,
               bool enc_btn, float dt);

@@ -902,6 +902,32 @@ static void TestWeatherLink()
         CheckNear(m.Mod(Param::Reverb), 0.0f, 1e-6f, "on either controller");
     }
 
+    // The eight-note pad's scale button, and that it moves the pad chord with it.
+    {
+        Engine       e3;
+        ControlModel m3;
+        WeatherLink  w3;
+        e3.Init(kSR, kBlock);
+        m3.Init(&e3, 0.5f, 0.5f);
+        w3.Init(&e3, &m3);
+        const float dt3 = 0.001f;
+        m3.Read(true, false, 0.5f, 0.5f, 0, false, dt3);
+        m3.Read(false, false, 0.5f, 0.5f, 0, false, dt3);   // arp on
+        // A note from the pad's encoder, and a note off the wire.
+        m3.Read(false, false, 0.5f, 0.5f, 0, true, dt3);
+        m3.Read(false, false, 0.5f, 0.5f, 0, false, dt3);
+        w3.NoteOn(kChMain, 61, 100);                        // not in any scale
+
+        Check(e3.ScaleIndex() == 0, "starts on the first scale");
+        w3.ControlChange(kChMain, kScaleSelectCC, 2);
+        Check(e3.ScaleIndex() == 2, "CC20 selects the scale by index");
+        Check(e3.IsHeld(e3.NoteForDegree(0)),
+              "and the pad's own note follows it into the new scale");
+        Check(e3.IsHeld(61), "while the note off the wire stays exactly where it is");
+        w3.ControlChange(kChMain, kScaleSelectCC, 99);
+        Check(e3.ScaleIndex() == 2, "an out-of-range index is ignored");
+    }
+
     // Panic.
     w.ControlChange(kChMain, 123, 0);
     Check(!e.IsHeld(51), "CC123 clears every held note");
