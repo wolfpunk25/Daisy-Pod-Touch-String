@@ -422,18 +422,20 @@ part of why "nothing happens" was a fair description.
 
 ## Still unproven
 
-Everything about how it feels, because none of it has been on hardware yet:
+A 36-check hardware test pass on 2026-09-06 came back **35 pass, 0 fail**, so most
+of what used to be listed here is now settled: Density and Shift both work, the
+pluck flash is legible at speed, **the eight degree hues DO read apart on LED 2**
+(no brightness ramp needed), and both gesture timings hold up in the hand. The
+whole eight-note pad integration passed, including the two cases that had only
+been reasoned about — CC20 driving the scale end to end, and no note left hanging
+when the scale changes under a held button.
 
-* **Whether eight hues read apart on LED 2.** The degree indicator is a hue
-  around the wheel; if it does not read, it is one line to change to a brightness
-  ramp.
-* **The gesture timings** — 0.4 s for the setup layer, 1.2 s for panic.
-* **Whether the pluck flash is legible** at sixteenths, where notes are 68 ms
-  apart at the top of the tempo range.
-* **Density and Shift.** The Pattern page was on screen for about a second of
-  the whole capture, so those two are the only panel parameters never moved on
-  hardware.
-* **Pitch bend.** The capture recorded none — the Weather Station only bends
-  during WIND weather, which was never held.
-* **MIDI clock.** Nothing on the socket sends it; the Weather Station does not.
+What genuinely remains:
+
+* **MIDI clock sync.** Nothing in the rig sends clock. The bottom of the tempo
+  control hands the clock to the socket and that path has never been exercised.
+* **The Weather Station mapping.** Written and covered by host tests, but the
+  controller it ran on now carries the eight-note pad firmware, so none of it has
+  been heard since. It is supported, not proven.
+* **Pitch bend.** The pad sends none.
 * **The brightness ceiling**, above.
