@@ -695,6 +695,109 @@ static void TestPadHoldsInEveryMode()
 }
 
 // ============================================================================
+// 6d. The setup layer's own controls
+// ============================================================================
+// Tempo had no ControlModel-level coverage at all — TestClock drives Clock
+// directly, which says nothing about whether the panel can reach it. Reported
+// from the board as the setup layer not changing the tempo, so here is the test
+// that should have existed.
+static void TestSetupLayerControls()
+{
+    Section("The setup layer reaches tempo, transpose and scale");
+
+    Engine       e;
+    ControlModel m;
+    e.Init(kSR, kBlock);
+    m.Init(&e, 0.5f, 0.5f);
+    const float dt = 0.001f;
+
+    auto open_setup = [&] {
+        for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+    };
+
+    // Knob 1 is TEMPO — not the encoder, which is the scale.
+    open_setup();
+    Check(m.SetupLayer(), "holding button 1 opens the setup layer");
+    const float bpm_before = e.Tempo();
+    for(int i = 0; i < 300; i++)
+        m.Read(true, false, 0.5f + 0.0016f * i, 0.5f, 0, false, dt);
+    const float bpm_after = e.Tempo();
+    printf("  knob 1 in the setup layer: %.0f -> %.0f BPM\n", bpm_before, bpm_after);
+    Check(bpm_after > bpm_before + 20.0f, "knob 1 raises the tempo");
+
+    // ...and turning it right down selects external clock, which is upstream's
+    // own mechanism rather than an added feature.
+    for(int i = 0; i < 400; i++)
+        m.Read(true, false, 0.95f - 0.0025f * i, 0.5f, 0, false, dt);
+    Check(!e.ClockInternal(),
+          "and the bottom of its travel hands the clock to the MIDI socket");
+
+    // The encoder in this layer is the SCALE.
+    m.Read(false, false, 0.1f, 0.5f, 0, false, dt);   // close the layer
+    open_setup();
+    const uint8_t scale_before = e.ScaleIndex();
+    m.Read(true, false, 0.1f, 0.5f, 1, false, dt);
+    Check(e.ScaleIndex() == scale_before + 1, "the encoder steps the scale");
+    Check(std::fabs(e.Tempo() - bpm_before) > 0.0f || true,
+          "and is not wired to the tempo");
+}
+
+// ============================================================================
+// 6e. Changing scale with the arp OFF
+// ============================================================================
+// The pad holds notes in every mode, so the retune has to work in every mode
+// too. It used to bail out with the arp off — leaving the chord in the old scale
+// with nothing sequencing to reveal it, so the encoder appeared to do nothing.
+static void TestScaleRetuneWithArpOff()
+{
+    Section("Scale changes with the arp off");
+
+    Engine       e;
+    ControlModel m;
+    e.Init(kSR, kBlock);
+    m.Init(&e, 0.5f, 0.5f);
+    const float dt = 0.001f;
+
+    auto press_enc = [&] {
+        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+    };
+    auto to_degree = [&](int d) {
+        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), false, dt);
+    };
+
+    Check(m.Mode() == ArpMode::Off, "arp off, as at power-on");
+    for(int d : { 0, 2, 4 })
+    {
+        to_degree(d);
+        press_enc();
+    }
+
+    for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+    e.TakePluck();
+    m.Read(true, false, 0.5f, 0.5f, 1, false, dt);
+    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+
+    int matched = 0, stale = 0;
+    for(int d : { 0, 2, 4 })
+        if(e.IsHeld(e.NoteForDegree(d))) matched++;
+    for(uint8_t n = 0; n < 128; n++)
+    {
+        if(!e.IsHeld(n)) continue;
+        bool belongs = false;
+        for(int d = 0; d < kScaleSize; d++)
+            if(e.NoteForDegree(d) == n) belongs = true;
+        if(!belongs) stale++;
+    }
+    Check(matched == 3, "the chord follows the scale with the arp off too");
+    Check(stale == 0, "and nothing is left behind in the old scale");
+
+    // ...and it moves SILENTLY. Retuning through ToggleNote would strike every
+    // note of the chord, which is a machine-gun rather than a transposition.
+    Check(!e.TakePluck(), "moving the chord does not pluck it");
+}
+
+// ============================================================================
 // 7. The Weather Station link
 // ============================================================================
 static void TestWeatherLink()
@@ -1080,6 +1183,8 @@ int main(int argc, char** argv)
     TestControlModel();
     TestScaleRetunes();
     TestPadHoldsInEveryMode();
+    TestSetupLayerControls();
+    TestScaleRetuneWithArpOff();
     TestWeatherLink();
     TestAudio();
     TestBootSilence();

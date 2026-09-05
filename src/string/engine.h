@@ -46,6 +46,9 @@ class Engine
     void NoteOff(uint8_t note);
     // Pad, from the encoder button.
     void ToggleNote(uint8_t note);
+    // Move a held note to a different pitch without plucking it. Used when the
+    // scale changes under a chord the pad is holding.
+    void RetuneHeldNote(uint8_t from, uint8_t to);
     void AllNotesOff();
     bool IsHeld(uint8_t note) const { return latch_.IsHeld(note); }
 

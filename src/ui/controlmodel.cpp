@@ -113,10 +113,13 @@ void ControlModel::PushParam(Param p)
 // The pad is the only thing that knows, so the pad is what fixes it up.
 void ControlModel::RetunePadNotes()
 {
-    // With the arp off nothing is held; ToggleNote would fire a pluck instead,
-    // so a scale change would machine-gun the whole chord.
-    if(mode_ == ArpMode::Off) return;
-
+    // This used to bail out with the arp off, on the grounds that nothing was
+    // held then and ToggleNote would pluck rather than move. Both halves of that
+    // stopped being true the moment the pad started holding notes in every mode,
+    // and the symptom was that changing scale with the arp off did nothing you
+    // could hear: the index moved, the chord stayed in the old scale, and
+    // nothing was sequencing to reveal it. Engine::RetuneHeldNote moves a note
+    // without striking it, so there is no longer a mode to special-case.
     for(uint8_t d = 0; d < kScaleSize; ++d)
     {
         const uint8_t old_note = pad_note_[d];
@@ -125,8 +128,7 @@ void ControlModel::RetunePadNotes()
         const uint8_t new_note = engine_->NoteForDegree(d);
         if(new_note == old_note) continue;   // the scales agree on this degree
 
-        if(engine_->IsHeld(old_note)) engine_->ToggleNote(old_note);
-        if(!engine_->IsHeld(new_note)) engine_->ToggleNote(new_note);
+        engine_->RetuneHeldNote(old_note, new_note);
         pad_note_[d] = new_note;
     }
 }

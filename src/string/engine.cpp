@@ -88,6 +88,17 @@ void Engine::ToggleNote(uint8_t note)
     StartOrStop();
 }
 
+// Silent: the note moves, nothing is struck. Going through ToggleNote instead
+// would pluck every note of the chord on a scale change with the arp off, which
+// is a machine-gun rather than a transposition.
+void Engine::RetuneHeldNote(uint8_t from, uint8_t to)
+{
+    if(from == to) return;
+    if(latch_.IsHeld(from)) latch_.Toggle(from);
+    if(!latch_.IsHeld(to)) latch_.Toggle(to);
+    if(arp_on_) StartOrStop();
+}
+
 // Turning the arp on has to pick up whatever is already held, and turning it off
 // has to stop the clock WITHOUT dropping the chord — ResetSequence() clears the
 // arp, which would throw away notes the player put there deliberately.
