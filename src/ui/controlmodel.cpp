@@ -215,8 +215,9 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
             engine_->AllNotesOff();
             for(auto& n : pad_note_) n = kNoPadNote;
             panics_++;
-            enc_consumed_ = true;
-            panicked_     = true;
+            enc_consumed_  = true;
+            panicked_      = true;
+            panic_latched_ = true;
             touch_left_   = 1.2f;
         }
     }
@@ -233,7 +234,9 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
             toggles_++;
             touch_left_ = 1.0f;
         }
-        enc_held_ = 0.0f;
+        // The hand has moved and the eye is free: now the confirmation can fade.
+        panic_latched_ = false;
+        enc_held_      = 0.0f;
     }
     enc_ = enc_btn;
 

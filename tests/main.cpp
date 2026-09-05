@@ -489,10 +489,14 @@ static void TestControlModel()
         if(n.Panicked()) panicked = true;
     }
     Check(panicked, "holding the encoder panics");
+    Check(n.PanicLatched(),
+          "and the confirmation stays lit while the encoder is still held");
     Check(!e2.IsHeld(e2.NoteForDegree(0)), "and the chord is gone");
     n.Read(false, false, 0.5f, 0.5f, 0, false, dt);
     Check(!e2.IsHeld(e2.NoteForDegree(0)),
           "releasing after a panic does not also toggle a note back on");
+    Check(!n.PanicLatched(),
+          "and only then is the confirmation released to fade");
 
     // Transposition: the setup layer's knob 2, quantised to semitones.
     ControlModel t;

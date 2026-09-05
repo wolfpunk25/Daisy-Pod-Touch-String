@@ -44,7 +44,9 @@ void Panel::ProcessControls(float dt)
 
     if(midi_settle_ > 0.0f) midi_settle_ -= dt;
 
-    if(model_.Panicked()) panic_flash_ = 1.0f;
+    // Held at full for as long as the encoder is down, so the red is still there
+    // when the finger comes off; the fade below only starts after that.
+    if(model_.Panicked() || model_.PanicLatched()) panic_flash_ = 1.0f;
 }
 
 void Panel::ProcessMidi()
@@ -177,7 +179,7 @@ void Panel::UpdateLeds(float dt)
     float r2 = 0.0f, g2 = 0.0f, b2 = 0.0f;
     if(panic_flash_ > 0.0f)
     {
-        panic_flash_ -= panic_flash_ * dt * 6.0f;
+        panic_flash_ -= panic_flash_ * dt * 3.0f;   // ~1.3 s to fade out
         if(panic_flash_ < 0.02f) panic_flash_ = 0.0f;
         r2 = panic_flash_;
     }

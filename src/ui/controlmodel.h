@@ -161,7 +161,14 @@ class ControlModel
     bool    DegreeHeld() const;
     float   Norm(Param p) const { return norm_[static_cast<int>(p)]; }
     int8_t  TransposeSemis() const;
+    // True for the one pass on which the panic fires.
     bool    Panicked() const { return panicked_; }
+    // True from the panic firing until the encoder is let go. The panic happens
+    // 1.2 s into a hold, while the finger is still down — so a confirmation that
+    // starts fading immediately is over before the hand moves and the eye looks.
+    // Reported from the board as exactly that: everything cleared correctly, and
+    // the red flash was never seen.
+    bool    PanicLatched() const { return panic_latched_; }
 
     // Enough to tell, from a serial capture, whether an encoder press is being
     // seen at all, whether it is being read as a press or as a hold, and whether
@@ -211,7 +218,8 @@ class ControlModel
     float b1_held_ = 0.0f, enc_held_ = 0.0f;
     bool  b1_consumed_ = false, enc_consumed_ = false;
     bool  setup_       = false;
-    bool  panicked_    = false;
+    bool  panicked_      = false;
+    bool  panic_latched_ = false;
 
     float touch_left_ = 0.0f;
 
