@@ -54,8 +54,30 @@ static constexpr float kChanceSteps[4] = { 0.00f, 0.30f, 0.60f, 0.90f };
 // anything the knob can reach. See string/vox.h for the measurements.
 //
 // Brightness sweeps the exciter's cutoff across this range, exponentially.
+// It used to reach 7.5 kHz, but measurement showed the balance stops changing
+// above about 3 kHz — HF share went 0.277 at 3 kHz to 0.279 at 7.5 — so the top
+// third of the knob was travel that did nothing.
 static constexpr float kBowCutoffLow  = 280.0f;    // Hz
-static constexpr float kBowCutoffHigh = 7500.0f;
+static constexpr float kBowCutoffHigh = 3000.0f;
+
+// The RESONATOR's own brightness, which is a different thing from the exciter's
+// cutoff and the one that was making the bow harsh. In KarplusString it raises
+// the loop's damping cutoff, so the string keeps more of its high harmonics on
+// every round trip: Q climbs, inharmonic partials ring, and it reads as metallic.
+// Measured HF share against resonator brightness, exciter fixed:
+//
+//     0.20 -> 0.222    0.40 -> 0.208    0.65 -> 0.244
+//     0.90 -> 0.338    1.00 -> 0.376
+//
+// The knee is at about 0.65, and the knob used to run all the way to 1.0. It now
+// stops short of the knee, and the exciter's cutoff carries the audible sweep —
+// which the same measurement showed is safe and almost level-flat.
+static constexpr float kBowResBrightLow  = 0.15f;
+static constexpr float kBowResBrightHigh = 0.62f;
+
+// Resonator brightness also adds level (7 dB across the old range), so a little
+// compensation keeps Brightness a timbre control rather than a second volume.
+static constexpr float kBowGainTilt = 0.40f;
 // How hard the bow is drawn. The resonator needs enough energy to build a note
 // out of noise, and not so much that it saturates.
 static constexpr float kBowGain = 0.28f;

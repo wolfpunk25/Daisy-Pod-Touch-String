@@ -66,12 +66,17 @@ class Vox
     {
         bright_ = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
         osc_.SetBrightness(bright_ * 0.5f);
-        bow_string_.SetBrightness(bright_);
+        // Stops short of the knee where the loop turns metallic — see config.h.
+        bow_string_.SetBrightness(kBowResBrightLow
+                                  + (kBowResBrightHigh - kBowResBrightLow) * bright_);
         // Exponential, because the bottom of a cutoff sweep is where the ear
         // hears the most change.
         const float cut = kBowCutoffLow
                           * powf(kBowCutoffHigh / kBowCutoffLow, bright_);
         bow_filter_.SetFreq(cut);
+        // Opening the loop raises the level as well as the tone; take some back
+        // so the knob is not also a volume control.
+        bow_gain_ = kBowGain * (1.0f - kBowGainTilt * bright_);
     }
 
     void SetStructure(float v)
@@ -132,7 +137,7 @@ class Vox
             if(bow_env_ > 1e-5f)
             {
                 bow_filter_.Process(noise_.Process());
-                ex = bow_filter_.Low() * kBowGain * bow_env_;
+                ex = bow_filter_.Low() * bow_gain_ * bow_env_;
             }
 
             // The envelope scales the OUTPUT as well as the excitation, so the
@@ -164,6 +169,7 @@ class Vox
     bool  bow_active_ = false;
     float bow_env_   = 0.0f;
     float tail_      = 0.0f;
+    float bow_gain_  = kBowGain;
     float atk_coef_  = 0.01f;
     float rel_coef_  = 0.01f;
 
