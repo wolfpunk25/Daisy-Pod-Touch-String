@@ -607,26 +607,39 @@ static void TestBow()
               "twelve seconds of bowing stays inside the rails");
     }
 
-    // Release it and the bow stops.
+    // Release it and the bow RINGS DOWN. The first version hard-switched away
+    // from the bow resonator the instant the bow lifted, so its tail was
+    // disconnected rather than decayed — reported from the board as cutting off
+    // very abruptly. The test that was here asserted silence after release and
+    // passed on digital zero, which is to say it asserted the bug.
     {
         Engine e;
         e.Init(kSR, kBlock);
         e.SetExciter(Exciter::Bow);
         e.SetBrightness(0.6f);
+        e.SetDamping(0.4f);
         e.NoteOn(48);
-        float on = 0.0f;
-        render(e, 0.5f, &on);
+        float held = 0.0f;
+        render(e, 1.5f, &held);
         e.NoteOff(48);
-        // Let the string ring down first. Taking the peak of a window that
-        // starts the instant you release just catches the note still decaying,
-        // which is physics rather than a stuck bow.
-        float ringdown = 0.0f, after = 0.0f;
-        render(e, 2.0f, &ringdown);
-        render(e, 1.0f, &after);
-        printf("  released: %.1f dBFS during ring-down, %.1f dBFS after\n",
-               Db(ringdown), Db(after));
-        Check(on > 0.01f, "sounding while held");
-        Check(after < on * 0.02f, "and silent once the string has rung down");
+
+        // 150 ms after the bow lifts it must still be sounding. This is the
+        // check that would have caught the cut.
+        float just_after = 0.0f;
+        render(e, 0.15f, &just_after);
+        printf("  released: %.1f dBFS held, %.1f dBFS 150 ms later\n",
+               Db(held), Db(just_after));
+        Check(just_after > held * 0.25f,
+              "150 ms after the bow lifts the string is still ringing, not cut");
+
+        // ...and it is gone within a couple of seconds, rather than for ever.
+        float later = 0.0f, settled = 0.0f;
+        render(e, 2.5f, &later);
+        render(e, 1.0f, &settled);
+        printf("  then %.1f dBFS, and %.1f dBFS once settled\n",
+               Db(later), Db(settled));
+        Check(settled < held * 0.02f, "and has rung down within a few seconds");
+        Check(settled < later, "monotonically, rather than sustaining for ever");
     }
 
     // A pluck still decays, so switching back has not broken anything.

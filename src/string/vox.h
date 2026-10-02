@@ -37,7 +37,9 @@ class Vox
   public:
     void Init(float sample_rate)
     {
-        sr_ = sample_rate;
+        sr_       = sample_rate;
+        atk_coef_ = 1.0f - expf(-1.0f / (kBowAttackSec * sample_rate));
+        rel_coef_ = 1.0f - expf(-1.0f / (kBowReleaseSec * sample_rate));
         osc_.Init(sample_rate);
 
         bow_string_.Init(sample_rate);
@@ -86,7 +88,8 @@ class Vox
         // A bow needs the loop to hold on, or the noise never builds into a
         // note. Upstream's damping range is fine for a pluck and far too lossy
         // here, so the bow gets the top of it.
-        bow_string_.SetDamping(kBowDampingLow + (1.0f - kBowDampingLow) * v);
+        bow_string_.SetDamping(kBowDampingLow
+                               + (kBowDampingHigh - kBowDampingLow) * v);
     }
 
     void SetFreq(float freq)
@@ -103,23 +106,66 @@ class Vox
     {
         if(on == bowing_) return;
         bowing_ = on;
-        if(on) bow_string_.Reset();   // start from silence, not the last tail
+        if(on && !bow_active_)
+        {
+            bow_string_.Reset();   // start from silence, not an old tail
+            bow_env_ = 0.0f;
+        }
+        if(on) bow_active_ = true;
     }
 
     float Process()
     {
-        if(bowing_)
+        // The pluck voice always runs: StringVoice holds its own state and this
+        // is where a plucked note decays.
+        float out = osc_.Process();
+
+        // The bow resonator keeps running after the bow lifts, fed zero, so the
+        // string RINGS DOWN instead of being cut off. Hard-switching away from
+        // it was the bug: the tail was still there, just disconnected.
+        if(bow_active_)
         {
-            bow_filter_.Process(noise_.Process());
-            return dc_.Process(bow_string_.Process(bow_filter_.Low() * kBowGain));
+            const float target = bowing_ ? 1.0f : 0.0f;
+            bow_env_ += (bowing_ ? atk_coef_ : rel_coef_) * (target - bow_env_);
+
+            float ex = 0.0f;
+            if(bow_env_ > 1e-5f)
+            {
+                bow_filter_.Process(noise_.Process());
+                ex = bow_filter_.Low() * kBowGain * bow_env_;
+            }
+
+            // The envelope scales the OUTPUT as well as the excitation, so the
+            // release has a shape of its own. Relying on the string's natural
+            // decay is not enough: at the top of the damping range the loop
+            // barely loses energy, and a measured ring-down was still only 4 dB
+            // down after a whole second.
+            const float bowed = bow_string_.Process(ex) * bow_env_;
+            out += bowed;
+
+            // Stop running it once the excitation has gone AND the string has
+            // actually fallen quiet, rather than after a fixed time — a long
+            // damping setting rings for much longer than a short one.
+            tail_ += 0.0004f * (fabsf(bowed) - tail_);
+            if(!bowing_ && bow_env_ < 1e-5f && tail_ < 2e-5f)
+            {
+                bow_active_ = false;
+                tail_       = 0.0f;
+            }
         }
-        return dc_.Process(osc_.Process());
+
+        return dc_.Process(out);
     }
 
   private:
-    float sr_     = 48000.0f;
-    float bright_ = 0.5f;
-    bool  bowing_ = false;
+    float sr_        = 48000.0f;
+    float bright_    = 0.5f;
+    bool  bowing_    = false;
+    bool  bow_active_ = false;
+    float bow_env_   = 0.0f;
+    float tail_      = 0.0f;
+    float atk_coef_  = 0.01f;
+    float rel_coef_  = 0.01f;
 
     daisysp::StringVoice osc_;          // pluck
     daisysp::String      bow_string_;   // bow: the bare resonator

@@ -62,6 +62,15 @@ static constexpr float kBowGain = 0.28f;
 // A bow needs a lossier-than-nothing loop that still holds on; upstream's
 // damping range is tuned for a pluck and is far too lossy to sustain.
 static constexpr float kBowDampingLow = 0.55f;
+// KarplusString crossfades to INFINITE decay above 0.95 damping, so the bow's
+// range has to stop short of it: with the loop never losing energy there is
+// nothing for a release to decay into, and the string rings for ever.
+static constexpr float kBowDampingHigh = 0.90f;
+// How quickly the bow takes hold and lets go, in seconds. The release is the
+// one that matters: a bow lifting off a string leaves it ringing, and cutting
+// the excitation dead sounds like a switch rather than a player.
+static constexpr float kBowAttackSec  = 0.030f;
+static constexpr float kBowReleaseSec = 0.450f;
 static constexpr float kTimbreDefault  = 0.35f;
 static constexpr float kDampingDefault = 0.50f;
 static constexpr float kDriveDefault   = 0.20f;
