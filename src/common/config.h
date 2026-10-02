@@ -37,6 +37,29 @@ static constexpr const char* kScaleNames[kScalesCount] = { "Amara", "Oxalis", "P
 // drops the least recent note when it runs out.
 static constexpr uint8_t kMaxHeldNotes = 16;
 
+// ── Off the panel ───────────────────────────────────────────────────────────
+// Damping, drive, pattern shift and transposition used to be reachable by hand,
+// across four pages that nothing on the box could label. The panel is now four
+// always-live controls with one job each, and these four are set here instead.
+// They are the ones that are set once and left; if any turns out to be wanted
+// mid-performance it belongs on the panel, not in a page.
+//
+// Four steps of the Chance control, which is a stepped encoder press rather than
+// a knob — it is a character setting you pick, not something you ride.
+static constexpr float kChanceSteps[4] = { 0.00f, 0.30f, 0.60f, 0.90f };
+
+// Bowing, DaisySP derives the dust density that drives the bow from brightness
+// SQUARED — so at the bottom of the Brightness knob a bowed string makes no
+// sound at all. Found by a host test, and it would have read as "bow mode is
+// broken" on the board. The knob is remapped into this range while bowing: the
+// whole sweep still does something, and none of it is silence.
+static constexpr float kBowBrightnessFloor = 0.22f;
+static constexpr float kTimbreDefault  = 0.35f;
+static constexpr float kDampingDefault = 0.50f;
+static constexpr float kDriveDefault   = 0.20f;
+static constexpr float kShiftDefault   = 0.00f;
+static constexpr int8_t kTransposeDefault = 0;
+
 // ── Transposition ───────────────────────────────────────────────────────────
 static constexpr int8_t kTransMin = -12;   // semitones
 static constexpr int8_t kTransMax =  12;

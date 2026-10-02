@@ -119,31 +119,9 @@ void Panel::ProcessMidi()
     }
 }
 
-// Hue in turns, 0..1. Cheap and good enough for eight distinguishable steps.
-void Panel::Hsv(float h, float s, float v, float& r, float& g, float& b)
-{
-    h = h - floorf(h);
-    const float i = floorf(h * 6.0f);
-    const float f = h * 6.0f - i;
-    const float p = v * (1.0f - s);
-    const float q = v * (1.0f - s * f);
-    const float t = v * (1.0f - s * (1.0f - f));
-    switch(static_cast<int>(i) % 6)
-    {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        default: r = v; g = p; b = q; break;
-    }
-}
-
 void Panel::UpdateLeds(float dt)
 {
-    // ── LED 1: what the arp is doing, and every pluck ───────────────────────
-    // Upstream lights the Seed's onboard LED when the latch is on and shows
-    // nothing else. There is more to say here and two RGB LEDs to say it with.
+    // ── LED 1: the sequencer ────────────────────────────────────────────────
     float r1 = 0.0f, g1 = 0.0f, b1 = 0.0f;
     switch(model_.Mode())
     {
@@ -161,8 +139,7 @@ void Panel::UpdateLeds(float dt)
 
     // A pluck is the only thing that happens entirely in the audio callback, so
     // the flash is the one window the panel has onto the pattern. Short, because
-    // sixteenths at 220 BPM are 68 ms apart and a slower decay would smear into
-    // a steady glow.
+    // sixteenths at 220 BPM are 68 ms apart.
     if(engine_->TakePluck()) pluck_flash_ = 1.0f;
     pluck_flash_ -= pluck_flash_ * dt * 22.0f;
     if(pluck_flash_ < 0.01f) pluck_flash_ = 0.0f;
@@ -171,48 +148,44 @@ void Panel::UpdateLeds(float dt)
     g1 += pluck_flash_ * 0.55f;
     b1 += pluck_flash_ * 0.55f;
 
-    // Something on the MIDI socket is playing: a blue floor, so it is obvious
-    // whether the Weather Station is actually reaching the box.
+    // Something is arriving on the MIDI socket.
     if(link_.Linked()) b1 += 0.10f;
 
-    // ── LED 2: where the panel is ───────────────────────────────────────────
+    // ── LED 2: the string ───────────────────────────────────────────────────
+    // Colour is the exciter, brightness is the chance step. Both are states you
+    // set deliberately and then leave, which is what makes them safe to put in
+    // one light — nothing here changes while you are playing unless you change
+    // it.
     float r2 = 0.0f, g2 = 0.0f, b2 = 0.0f;
+
     if(panic_flash_ > 0.0f)
     {
-        panic_flash_ -= panic_flash_ * dt * 3.0f;   // ~1.3 s to fade out
+        // Held at full while the encoder is still down — see ProcessControls.
+        panic_flash_ -= panic_flash_ * dt * 3.0f;
         if(panic_flash_ < 0.02f) panic_flash_ = 0.0f;
         r2 = panic_flash_;
     }
-    else if(model_.SetupLayer())
+    else if(model_.TempoLayer())
     {
-        // White, with the scale as a brightness step so the encoder has an
-        // answer while you are turning it.
-        const float v = 0.25f + 0.35f * static_cast<float>(engine_->ScaleIndex());
-        r2 = g2 = b2 = v;
-    }
-    else if(model_.TouchLeft() > 0.0f && model_.Degree() != 0xff)
-    {
-        // Recently touched: show which of the eight degrees the encoder is
-        // sitting on, as a hue around the wheel. Full brightness if that note is
-        // in the held set, dim if it is only selected.
-        //
-        // Whether eight hues actually read apart in the hand is unproven — see
-        // docs/PORTING.md. It is one line to change to a brightness ramp.
-        const float h = static_cast<float>(model_.Degree()) / 8.0f;
-        Hsv(h, 1.0f, model_.DegreeHeld() ? 0.60f : 0.12f, r2, g2, b2);
+        // White, and its brightness IS the tempo — the only parameter on the
+        // box without a pot position to read, so it borrows the light.
+        const float t = model_.Norm(Param::Tempo);
+        r2 = g2 = b2 = 0.06f + 0.5f * t;
     }
     else
     {
-        static constexpr float kPageColour[kNumPages][3] = {
-            { 0.05f, 0.10f, 0.45f },   // String  — blue
-            { 0.40f, 0.30f, 0.00f },   // Body    — yellow
-            { 0.40f, 0.00f, 0.35f },   // Pattern — magenta
-            { 0.00f, 0.35f, 0.35f },   // Space   — cyan
-        };
-        const int p = static_cast<int>(model_.CurrentPage());
-        r2          = kPageColour[p][0];
-        g2          = kPageColour[p][1];
-        b2          = kPageColour[p][2];
+        static constexpr float kChanceLevel[4] = { 0.10f, 0.22f, 0.38f, 0.58f };
+        const float v = kChanceLevel[model_.ChanceStep() & 3];
+        if(model_.GetExciter() == Exciter::Bow)
+        {
+            r2 = v;                 // warm amber: bowed
+            g2 = v * 0.42f;
+        }
+        else
+        {
+            b2 = v;                 // cool blue: plucked
+            g2 = v * 0.30f;
+        }
     }
 
     auto clip = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };

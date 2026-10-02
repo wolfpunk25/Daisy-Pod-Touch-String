@@ -44,6 +44,7 @@ void Engine::NoteOn(uint8_t note)
     // so turning the arp on picks up whatever is already down instead of waiting
     // for the next note.
     latch_.NoteOn(note);
+    UpdateBow();
     if(!arp_on_)
     {
         // No sequencer to run, so play it straight through.
@@ -59,6 +60,7 @@ void Engine::NoteOff(uint8_t note)
     note = scale_.Quantize(note);
 #endif
     latch_.NoteOff(note);
+    UpdateBow();
     if(arp_on_) StartOrStop();
 }
 
@@ -77,6 +79,7 @@ void Engine::ToggleNote(uint8_t note)
 {
     const bool was_held = latch_.IsHeld(note);
     latch_.Toggle(note);
+    UpdateBow();
 
     if(!arp_on_)
     {
@@ -108,12 +111,28 @@ void Engine::SetArpOn(bool on)
     arp_on_ = on;
     if(on) StartOrStop();
     else StopSequence();
+    UpdateBow();
+}
+
+void Engine::SetExciter(Exciter e)
+{
+    if(e >= Exciter::kCount || e == exciter_) return;
+    exciter_ = e;
+    UpdateBow();
+}
+
+// The bow runs while something is held and stops when nothing is — otherwise it
+// drones for ever, which is the one thing a continuous exciter must not do.
+void Engine::UpdateBow()
+{
+    vox_.SetSustain(exciter_ == Exciter::Bow && latch_.Any());
 }
 
 void Engine::AllNotesOff()
 {
     latch_.Clear();
     ResetSequence();
+    UpdateBow();
 }
 
 void Engine::SetLatch(bool on)
@@ -177,7 +196,11 @@ void Engine::Pluck(uint8_t note, bool humanize_pitch)
 {
     const uint8_t n = humanize_pitch ? HumanizedNote(note) : note;
     ApplyStringHumanize();
-    vox_.NoteOn(scale_.Freq(n));
+    vox_.SetFreq(scale_.Freq(n));
+    // Bowing, the string is already sounding: an arp step moves its pitch and
+    // that is all. Striking it as well is a scratch, not an attack, and it is
+    // what makes a bowed sequence sing rather than stutter.
+    if(exciter_ != Exciter::Bow) vox_.Trig();
     plucked_ = true;
 #if TS_DEBUG
     pluck_count_++;
@@ -252,6 +275,11 @@ void Engine::ApplyStringHumanize()
         if(d > 1.0f) d = 1.0f;
     }
 
+    // See kBowBrightnessFloor: brightness is what feeds the bow, and zero
+    // brightness is a silent bow rather than a dark one.
+    if(exciter_ == Exciter::Bow)
+        b = kBowBrightnessFloor + (1.0f - kBowBrightnessFloor) * b;
+
     vox_.SetBrightness(b);
     vox_.SetStructure(s);
     vox_.SetDamping(d);
@@ -284,6 +312,14 @@ void Engine::SetChance(float v)
     const float note = v * 2.0f - 1.0f < 0.0f ? 0.0f : v * 2.0f - 1.0f;
     string_chance_   = static_cast<uint8_t>(str * 100.0f);
     note_chance_     = static_cast<uint8_t>(note * 100.0f);
+}
+
+uint16_t Engine::HeldCount() const
+{
+    uint16_t n = 0;
+    for(int i = 0; i < 128; ++i)
+        if(latch_.IsHeld(static_cast<uint8_t>(i))) n++;
+    return n;
 }
 
 bool Engine::TakePluck()

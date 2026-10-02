@@ -101,7 +101,8 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
     switch(number)
     {
         case 70: model_->SetNorm(Param::Brightness, v); break;
-        case 71: model_->SetNorm(Param::Transpose, v); break;
+        // Transposition is off the panel now, so it goes straight at the engine.
+        case 71: engine_->SetTranspose(static_cast<int8_t>(v * (kTransMax - kTransMin)) + kTransMin); break;
         case 72: model_->SetNorm(Param::Timbre, v); break;
         case 73: model_->SetNorm(Param::Density, v); break;
         // Upstream spends 74 and 75 on its two randomisation knobs. 74 is
@@ -110,7 +111,7 @@ void WeatherLink::ControlChange(uint8_t channel, uint8_t number, uint8_t value)
         case 75: model_->SetNorm(Param::Chance, v); break;
         case 76: model_->SetNorm(Param::Damping, v); break;
         case 77: model_->SetNorm(Param::Reverb, v); break;
-        case 78: model_->SetNorm(Param::Shift, v); break;
+        case 78: engine_->SetShift(v); break;
         case 79: model_->SetNorm(Param::Drive, v); break;
         default: break;
     }

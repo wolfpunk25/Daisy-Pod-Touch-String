@@ -90,47 +90,31 @@ int main(void)
         {
             last_log            = now;
             const ControlModel& m = panel.Model();
-            // pod.seed.PrintLine() truncates at 128 characters, silently. Two
-            // shorter lines rather than one that loses its last field.
-            pod.seed.PrintLine("cpu %d/%d  mode %d  page %d  setup %d  deg %d held %d  midi %d",
+            // pod.seed.PrintLine() truncates at 128 characters, silently.
+            pod.seed.PrintLine("cpu %d/%d  arp %d  exciter %d  chance %d  tempoL %d  sc %d  midi %d",
                                static_cast<int>(cpu.GetAvgCpuLoad() * 100.0f),
                                static_cast<int>(cpu.GetMaxCpuLoad() * 100.0f),
                                static_cast<int>(m.Mode()),
-                               static_cast<int>(m.CurrentPage()),
-                               m.SetupLayer() ? 1 : 0,
-                               static_cast<int>(m.Degree()),
-                               m.DegreeHeld() ? 1 : 0,
+                               static_cast<int>(m.GetExciter()),
+                               static_cast<int>(m.ChanceStep()),
+                               m.TempoLayer() ? 1 : 0,
+                               static_cast<int>(m.ScaleIndex()),
                                panel.Link().Linked() ? 1 : 0);
-            const Engine::Stages st  = engine.TakeStages();
+            const Engine::Stages st    = engine.TakeStages();
             const Panel::MidiTally& mt = panel.Midi();
-            // The stage meters are in thousandths of full scale, so a screaming
-            // stage is obvious and the one before it says where it came from.
-            pod.seed.PrintLine("enc down %d held_ms %d  toggles %d panics %d  notes %d",
-                               m.EncDown() ? 1 : 0,
-                               static_cast<int>(m.EncHeld() * 1000.0f),
-                               m.Toggles(), m.Panics(), m.HeldCount());
-            pod.seed.PrintLine("plucks %d  lvl vox %d dry %d wet %d out %d",
-                               static_cast<int>(engine.Plucks()),
+            pod.seed.PrintLine("bright %d dens %d verb %d  bpm %d  notes %d plucks %d",
+                               static_cast<int>(m.Norm(Param::Brightness) * 100.0f),
+                               static_cast<int>(m.Norm(Param::Density) * 100.0f),
+                               static_cast<int>(m.Norm(Param::Reverb) * 100.0f),
+                               static_cast<int>(engine.Tempo()),
+                               static_cast<int>(engine.HeldCount()),
+                               static_cast<int>(engine.Plucks()));
+            pod.seed.PrintLine("lvl vox %d dry %d wet %d out %d   midi on %d off %d cc %d drop %d",
                                static_cast<int>(st.vox * 1000.0f),
                                static_cast<int>(st.dry * 1000.0f),
                                static_cast<int>(st.wet * 1000.0f),
-                               static_cast<int>(st.out * 1000.0f));
-            pod.seed.PrintLine("midi on %d off %d cc %d bend %d srt %d drop %d  last t%d c%d %d %d",
-                               mt.notes_on, mt.notes_off, mt.ccs, mt.bends,
-                               mt.clocks, mt.discarded, mt.last_type, mt.last_ch,
-                               mt.last_d0, mt.last_d1);
-            pod.seed.PrintLine("br %d ti %d da %d dr %d de %d sh %d rv %d ch %d  bpm %d tr %+d sc %d",
-                               static_cast<int>(m.Norm(Param::Brightness) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Timbre) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Damping) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Drive) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Density) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Shift) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Reverb) * 100.0f),
-                               static_cast<int>(m.Norm(Param::Chance) * 100.0f),
-                               static_cast<int>(engine.Tempo()),
-                               static_cast<int>(m.TransposeSemis()),
-                               static_cast<int>(engine.ScaleIndex()));
+                               static_cast<int>(st.out * 1000.0f),
+                               mt.notes_on, mt.notes_off, mt.ccs, mt.discarded);
         }
 #endif
 

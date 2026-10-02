@@ -30,6 +30,15 @@
 
 namespace tspod {
 
+// How the string is excited. "Pluck + Bow" — a bowed chord under a plucked
+// arpeggio — needs more than one string and arrives with polyphony.
+enum class Exciter : uint8_t
+{
+    Pluck = 0,
+    Bow,
+    kCount
+};
+
 class Engine
 {
   public:
@@ -52,11 +61,12 @@ class Engine
     void AllNotesOff();
     bool IsHeld(uint8_t note) const { return latch_.IsHeld(note); }
 
-    // The MIDI note for one of the eight degrees of the current scale.
-    uint8_t NoteForDegree(uint8_t d) const { return scale_.NoteAt(d); }
-
     // ── Arp ─────────────────────────────────────────────────────────────────
     void SetArpOn(bool on);
+
+    // ── Exciter ─────────────────────────────────────────────────────────────
+    void    SetExciter(Exciter e);
+    Exciter GetExciter() const { return exciter_; }
     bool ArpOn() const { return arp_on_; }
     void SetLatch(bool on);
     bool Latched() const { return latch_.On(); }
@@ -112,6 +122,8 @@ class Engine
     }
 #endif
     uint8_t Density() const { return pattern_.Onsets(); }
+    // How many notes are in the held set. Cheap, and the tests want it.
+    uint16_t HeldCount() const;
 
   private:
     static float Clamp(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
@@ -120,6 +132,8 @@ class Engine
     void OnNoteFromLatch(uint8_t note);
     void OffNoteFromLatch(uint8_t note);
     void OnArpNote(uint8_t note, uint8_t vel);
+    // The bow sounds while anything is held and must stop when nothing is.
+    void UpdateBow();
     void Pluck(uint8_t note, bool humanize_pitch);
     void ResetSequence();
     void StopSequence();
@@ -152,6 +166,7 @@ class Engine
     uint8_t note_chance_  = 0;    // 0..100
     uint8_t string_chance_ = 0;   // 0..100
     bool    arp_on_       = false;
+    Exciter exciter_      = Exciter::Pluck;
 
     bool  plucked_ = false;
     float peak_    = 0.0f;

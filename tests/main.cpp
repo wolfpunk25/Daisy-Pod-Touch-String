@@ -386,419 +386,278 @@ static void TestClock()
 }
 
 // ============================================================================
-// 6. The control model — the panel, without a panel
+// 6. The panel — four always-live controls, one job each
 // ============================================================================
-static void TestControlModel()
+// The old panel put eleven parameters on two knobs across four unlabelled
+// pages, with relative knobs so a pot's position told you nothing. It was not
+// enjoyable to play, which is a design failure rather than a bug, and these are
+// the properties the rewrite exists to guarantee.
+static void TestPanel()
 {
-    Section("Control model");
-
-    Engine       e;
-    ControlModel m;
-    e.Init(kSR, kBlock);
-    m.Init(&e, 0.5f, 0.5f);
+    Section("The panel");
 
     const float dt = 0.001f;
-    auto        idle = [&](int n, float k1 = 0.5f, float k2 = 0.5f) {
-        for(int i = 0; i < n; i++) m.Read(false, false, k1, k2, 0, false, dt);
-    };
 
-    Check(m.Mode() == ArpMode::Off, "boots with the arp off");
-    Check(m.CurrentPage() == Page::String, "boots on the String page");
-
-    // Button 1 tap cycles the arp mode; a tap is a press shorter than the hold.
-    m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    idle(1);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.Mode() == ArpMode::On, "a tap of button 1 turns the arp on");
-    m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.Mode() == ArpMode::Latched, "the next tap latches it");
-    Check(e.Latched(), "and the engine agrees");
-    m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.Mode() == ArpMode::Off, "and the next turns it off again");
-
-    // Holding button 1 opens the setup layer instead, and does NOT also count
-    // as a tap on the way out.
-    const ArpMode before = m.Mode();
-    for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.SetupLayer(), "holding button 1 opens the setup layer");
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(!m.SetupLayer(), "and letting go closes it");
-    Check(m.Mode() == before, "a hold is not also a tap");
-
-    // Button 2 pages.
-    m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.CurrentPage() == Page::Body, "button 2 pages forward");
-    for(int i = 0; i < 3; i++)
+    // ── The knobs ARE their values ─────────────────────────────────────────
     {
-        m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.80f, 0.20f);
+        CheckNear(m.Norm(Param::Brightness), 0.80f, 1e-6f,
+                  "brightness boots at whatever knob 1 is pointing at");
+        CheckNear(m.Norm(Param::Density), 0.20f, 1e-6f,
+                  "density boots at whatever knob 2 is pointing at");
+
+        // Absolute: the value tracks the pot, with no arming and no anchoring.
+        m.Read(false, false, 0.30f, 0.70f, 0, false, dt);
+        CheckNear(m.Norm(Param::Brightness), 0.30f, 1e-6f,
+                  "and follows the pot immediately — no 2% to arm");
+        CheckNear(m.Norm(Param::Density), 0.70f, 1e-6f, "both of them");
+    }
+
+    // ── A knob is never borrowed, so it can never jump ─────────────────────
+    // This is the property the old scheme could not have: whatever else is
+    // happening, knob 1 is brightness and knob 2 is density.
+    {
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.50f, 0.50f);
+
+        // Through the arp modes, the exciter, the tempo gesture and a panic.
+        for(int i = 0; i < 3; i++)
+        {
+            m.Read(true, false, 0.50f, 0.50f, 0, false, dt);
+            m.Read(false, false, 0.50f, 0.50f, 0, false, dt);
+        }
+        m.Read(false, true, 0.50f, 0.50f, 0, false, dt);
+        m.Read(false, false, 0.50f, 0.50f, 0, false, dt);
+        for(int i = 0; i < 600; i++) m.Read(true, false, 0.50f, 0.50f, 3, false, dt);
+        m.Read(false, false, 0.50f, 0.50f, 0, false, dt);
+        for(int i = 0; i < 2000; i++) m.Read(false, false, 0.50f, 0.50f, 0, true, dt);
+        m.Read(false, false, 0.50f, 0.50f, 0, false, dt);
+
+        CheckNear(m.Norm(Param::Brightness), 0.50f, 1e-6f,
+                  "brightness is untouched by every other gesture on the box");
+        CheckNear(m.Norm(Param::Density), 0.50f, 1e-6f, "and so is density");
+    }
+
+    // ── The encoder: reverb, chance, panic ─────────────────────────────────
+    {
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.5f, 0.5f);
+
+        const float v0 = m.Norm(Param::Reverb);
+        m.Read(false, false, 0.5f, 0.5f, 8, false, dt);
+        Check(m.Norm(Param::Reverb) > v0 + 0.1f, "the encoder turns the reverb up");
+        m.Read(false, false, 0.5f, 0.5f, -40, false, dt);
+        CheckNear(m.Norm(Param::Reverb), 0.0f, 1e-6f, "and down to zero, clamped");
+
+        Check(m.ChanceStep() == 0, "chance starts off");
+        for(int step = 1; step <= 4; step++)
+        {
+            m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+            m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+            Check(m.ChanceStep() == (step % 4),
+                  "a press steps chance to " + std::to_string(step % 4));
+        }
+        CheckNear(m.Norm(Param::Chance), kChanceSteps[0], 1e-6f,
+                  "and four presses bring it back round to off");
+
+        // Holding it is a panic, not a chance step.
+        const uint8_t before = m.ChanceStep();
+        bool fired = false;
+        for(int i = 0; i < 2000; i++)
+        {
+            m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
+            if(m.Panicked()) fired = true;
+        }
+        Check(fired, "holding the encoder panics");
+        Check(m.PanicLatched(), "and the confirmation stays lit while it is held");
         m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        Check(m.ChanceStep() == before, "a panic does not also step chance");
+        Check(!m.PanicLatched(), "and only on release is the red let go to fade");
     }
-    Check(m.CurrentPage() == Page::String, "and wraps after four");
 
-    // The relative knob: a page change must not move anything, however far the
-    // pot happens to be from the new parameter's value.
-    const float bright_before = m.Norm(Param::Brightness);
-    idle(50, 0.9f, 0.1f);
-    const float bright_after = m.Norm(Param::Brightness);
-    CheckNear(bright_after, bright_before, 1e-6f,
-              "a pot sitting far from a parameter does not drag it on arrival");
-
-    // ...but a deliberate turn does move it.
-    for(int i = 0; i < 50; i++)
-        m.Read(false, false, 0.9f + 0.001f * i, 0.1f, 0, false, dt);
-    Check(m.Norm(Param::Brightness) > bright_before + 0.02f,
-          "and a turn past the arming threshold does");
-
-    // Encoder: turn selects a degree, press toggles it, hold panics.
-    ControlModel n;
-    Engine       e2;
-    e2.Init(kSR, kBlock);
-    n.Init(&e2, 0.5f, 0.5f);
-    n.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    n.Read(false, false, 0.5f, 0.5f, 0, false, dt);   // arp on
-    Check(n.Mode() == ArpMode::On, "arp on for the note pad test");
-
-    n.Read(false, false, 0.5f, 0.5f, 3, false, dt);
-    Check(n.Degree() == 3, "the encoder moves the selected degree");
-    n.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-    n.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(n.DegreeHeld(), "a press puts that note in the held set");
-    n.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-    n.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(!n.DegreeHeld(), "and a second press takes it out");
-
-    // Build a chord one press at a time — the whole reason the encoder is a pad.
-    for(int d : { 0, 2, 4 })
+    // ── Button 1: arp mode, and the tempo gesture ──────────────────────────
     {
-        n.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(n.Degree()), false, dt);
-        n.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        n.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    }
-    Check(e2.IsHeld(e2.NoteForDegree(0)) && e2.IsHeld(e2.NoteForDegree(2))
-              && e2.IsHeld(e2.NoteForDegree(4)),
-          "three presses of the encoder build a three-note chord");
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.5f, 0.5f);
 
-    // Panic fires while the button is still down, not on release.
-    bool panicked = false;
-    for(int i = 0; i < 2000; i++)
-    {
-        n.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        if(n.Panicked()) panicked = true;
-    }
-    Check(panicked, "holding the encoder panics");
-    Check(n.PanicLatched(),
-          "and the confirmation stays lit while the encoder is still held");
-    Check(!e2.IsHeld(e2.NoteForDegree(0)), "and the chord is gone");
-    n.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(!e2.IsHeld(e2.NoteForDegree(0)),
-          "releasing after a panic does not also toggle a note back on");
-    Check(!n.PanicLatched(),
-          "and only then is the confirmation released to fade");
+        Check(m.Mode() == ArpMode::Off, "boots with the arp off");
+        for(ArpMode want : { ArpMode::On, ArpMode::Latched, ArpMode::Off })
+        {
+            m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
+            m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+            Check(m.Mode() == want, "a tap of button 1 cycles the arp mode");
+        }
 
-    // Transposition: the setup layer's knob 2, quantised to semitones.
-    ControlModel t;
-    Engine       e3;
-    e3.Init(kSR, kBlock);
-    t.Init(&e3, 0.5f, 0.5f);
-    Check(t.TransposeSemis() == 0, "boots at concert pitch");
-    for(int i = 0; i < 600; i++) t.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    for(int i = 0; i < 300; i++)
-        t.Read(true, false, 0.5f, 0.5f + 0.0016f * i, 0, false, dt);
-    printf("  transpose after a full turn up: %+d semitones\n", t.TransposeSemis());
-    Check(t.TransposeSemis() >= 10 && t.TransposeSemis() <= 12,
-          "a full turn of the setup knob reaches the top of the octave");
-}
-
-// ============================================================================
-// 6b. Changing the scale has to be audible on notes already held
-// ============================================================================
-// Upstream identifies a note by its scale DEGREE, so changing the scale retunes
-// whatever is sounding, instantly. This port identifies a note by its MIDI note
-// number — which is what lets the Weather Station play it at all — and the
-// degree is resolved to an absolute note at the moment the encoder is pressed.
-// Nothing revisits it afterwards, so the scale control moved a number in the log
-// and changed nothing anyone could hear.
-static void TestScaleRetunes()
-{
-    Section("Scale changes retune what is held");
-
-    Engine       e;
-    ControlModel m;
-    e.Init(kSR, kBlock);
-    m.Init(&e, 0.5f, 0.5f);
-
-    const float dt = 0.001f;
-    auto tap_b1 = [&] {
-        m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    };
-    auto press_enc = [&] {
-        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    };
-    auto to_degree = [&](int d) {
-        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), 0, dt);
-    };
-
-    tap_b1();   // arp on
-    Check(m.Mode() == ArpMode::On, "arp on");
-
-    // Build a chord on the encoder pad.
-    for(int d : { 0, 2, 4 })
-    {
-        to_degree(d);
-        press_enc();
-    }
-    std::vector<int> before;
-    for(int d = 0; d < kScaleSize; d++)
-        if(e.IsHeld(e.NoteForDegree(d))) before.push_back(d);
-    Check(before.size() == 3, "three degrees held");
-
-    // Now hold button 1 and turn the encoder to the next scale.
-    for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    Check(m.SetupLayer(), "setup layer open");
-    const uint8_t scale_before = e.ScaleIndex();
-    m.Read(true, false, 0.5f, 0.5f, 1, false, dt);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    Check(e.ScaleIndex() == scale_before + 1, "the scale index moved");
-
-    // ...and the chord must have moved with it. The degrees held should be the
-    // same three, but now sounding the NEW scale's notes for them.
-    int matched = 0, stale = 0;
-    for(int d : { 0, 2, 4 })
-        if(e.IsHeld(e.NoteForDegree(d))) matched++;
-    for(uint8_t n = 0; n < 128; n++)
-    {
-        if(!e.IsHeld(n)) continue;
-        bool belongs = false;
-        for(int d = 0; d < kScaleSize; d++)
-            if(e.NoteForDegree(d) == n) belongs = true;
-        if(!belongs) stale++;
-    }
-    printf("  after the scale change: %d of 3 degrees still held, %d stale notes\n",
-           matched, stale);
-    Check(matched == 3, "the same three degrees are held in the new scale");
-    Check(stale == 0, "and no note from the old scale is left ringing");
-
-    // The other half, and the more important one: notes off the MIDI socket are
-    // ABSOLUTE. The Weather Station has its own six scales and four octaves, and
-    // the whole point of passing its pitches through is that they mean what it
-    // says they mean. The scale control must not drag them anywhere.
-    {
-        Engine       e2;
-        ControlModel m2;
-        WeatherLink  w2;
-        e2.Init(kSR, kBlock);
-        m2.Init(&e2, 0.5f, 0.5f);
-        w2.Init(&e2, &m2);
-
-        m2.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);   // arp on
-
-        // Three notes that are deliberately NOT in any of the three scales.
-        const uint8_t wire[3] = { 61, 66, 73 };
-        for(uint8_t n : wire) w2.NoteOn(kChMain, n, 100);
-        // ...and one from the pad alongside them.
-        m2.Read(false, false, 0.5f, 0.5f, 2, false, dt);
-        m2.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-        const uint8_t pad_before = e2.NoteForDegree(2);
-
-        for(int i = 0; i < 600; i++) m2.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-        m2.Read(true, false, 0.5f, 0.5f, 1, false, dt);
-        m2.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-
-        int kept = 0;
-        for(uint8_t n : wire)
-            if(e2.IsHeld(n)) kept++;
-        Check(kept == 3, "MIDI notes are untouched by a scale change");
-        Check(!e2.IsHeld(pad_before) || e2.NoteForDegree(2) == pad_before,
-              "while the pad's own note moved with the scale");
-        Check(e2.IsHeld(e2.NoteForDegree(2)),
-              "and the pad's degree is still held in the new scale");
-    }
-}
-
-// ============================================================================
-// 6c. The encoder pad has to hold notes in every mode
-// ============================================================================
-// The boot state is arp OFF, so the first thing anyone does is press the encoder
-// — and it used to fire one quiet pluck and hold nothing, because ToggleNote
-// short-circuited whenever the sequencer was not running. Reported from the
-// board as "pressing the encoder doesn't add any notes". The diagnostic log
-// settled it in one capture: three toggles, zero panics, zero notes held.
-static void TestPadHoldsInEveryMode()
-{
-    Section("The pad holds notes with the arp off");
-
-    Engine       e;
-    ControlModel m;
-    e.Init(kSR, kBlock);
-    m.Init(&e, 0.5f, 0.5f);
-
-    const float dt = 0.001f;
-    auto press_enc = [&] {
-        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    };
-    auto to_degree = [&](int d) {
-        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), false, dt);
-    };
-    auto tap_b1 = [&] {
-        m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    };
-
-    Check(m.Mode() == ArpMode::Off, "boots with the arp off, as the board does");
-
-    // Build a chord with the sequencer still off.
-    for(int d : { 0, 2, 4 })
-    {
-        to_degree(d);
-        press_enc();
-    }
-    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(2))
-              && e.IsHeld(e.NoteForDegree(4)),
-          "three presses hold three notes even with the arp off");
-
-    // Adding a note makes a sound; nothing is sequencing yet. Drain the pluck
-    // flag the presses themselves set before asking whether anything REPEATS.
-    {
-        e.TakePluck();
-        const Render r = RenderFor(e, 1.0f);
-        Check(r.plucks == 0, "and nothing repeats while the arp is off");
-    }
-
-    // Pressing again takes a note back out.
-    to_degree(2);
-    press_enc();
-    Check(!e.IsHeld(e.NoteForDegree(2)), "pressing again removes it");
-    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(4)),
-          "and leaves the others alone");
-
-    // Now turn the arp on — the chord built beforehand must be picked up.
-    tap_b1();
-    Check(m.Mode() == ArpMode::On, "arp on");
-    const Render r = RenderFor(e, 2.0f);
-    printf("  plucks in 2 s after arming a chord built with the arp off: %d\n",
-           r.plucks);
-    Check(r.plucks > 4, "the chord built beforehand starts playing immediately");
-
-    // ...and turning it off again stops the sequence without losing the chord.
-    tap_b1();   // latched
-    tap_b1();   // off
-    Check(m.Mode() == ArpMode::Off, "arp off again");
-    Check(e.IsHeld(e.NoteForDegree(0)) && e.IsHeld(e.NoteForDegree(4)),
-          "cycling the arp mode keeps the chord rather than dropping it");
-    e.TakePluck();
-    const Render r2 = RenderFor(e, 2.0f);
-    Check(r2.plucks == 0, "but stops the sequencer");
-}
-
-// ============================================================================
-// 6d. The setup layer's own controls
-// ============================================================================
-// Tempo had no ControlModel-level coverage at all — TestClock drives Clock
-// directly, which says nothing about whether the panel can reach it. Reported
-// from the board as the setup layer not changing the tempo, so here is the test
-// that should have existed.
-static void TestSetupLayerControls()
-{
-    Section("The setup layer reaches tempo, transpose and scale");
-
-    Engine       e;
-    ControlModel m;
-    e.Init(kSR, kBlock);
-    m.Init(&e, 0.5f, 0.5f);
-    const float dt = 0.001f;
-
-    auto open_setup = [&] {
+        // Held, the encoder is the tempo — and the hold is not also a tap.
+        const ArpMode mode_before = m.Mode();
+        const float   bpm_before  = e.Tempo();
         for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    };
+        Check(m.TempoLayer(), "holding button 1 hands the encoder the tempo");
+        for(int i = 0; i < 12; i++) m.Read(true, false, 0.5f, 0.5f, 1, false, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        printf("  tempo after twelve detents: %.0f -> %.0f BPM\n", bpm_before, e.Tempo());
+        Check(e.Tempo() > bpm_before + 10.0f, "and turning it raises the tempo");
+        Check(m.Mode() == mode_before, "a hold is not also a tap");
+        Check(!m.TempoLayer(), "and letting go closes it");
+    }
 
-    // Knob 1 is TEMPO — not the encoder, which is the scale.
-    open_setup();
-    Check(m.SetupLayer(), "holding button 1 opens the setup layer");
-    const float bpm_before = e.Tempo();
-    for(int i = 0; i < 300; i++)
-        m.Read(true, false, 0.5f + 0.0016f * i, 0.5f, 0, false, dt);
-    const float bpm_after = e.Tempo();
-    printf("  knob 1 in the setup layer: %.0f -> %.0f BPM\n", bpm_before, bpm_after);
-    Check(bpm_after > bpm_before + 20.0f, "knob 1 raises the tempo");
-
-    // ...and turning it right down selects external clock, which is upstream's
-    // own mechanism rather than an added feature.
-    for(int i = 0; i < 400; i++)
-        m.Read(true, false, 0.95f - 0.0025f * i, 0.5f, 0, false, dt);
-    Check(!e.ClockInternal(),
-          "and the bottom of its travel hands the clock to the MIDI socket");
-
-    // The encoder in this layer is the SCALE.
-    m.Read(false, false, 0.1f, 0.5f, 0, false, dt);   // close the layer
-    open_setup();
-    const uint8_t scale_before = e.ScaleIndex();
-    m.Read(true, false, 0.1f, 0.5f, 1, false, dt);
-    Check(e.ScaleIndex() == scale_before + 1, "the encoder steps the scale");
-    Check(std::fabs(e.Tempo() - bpm_before) > 0.0f || true,
-          "and is not wired to the tempo");
+    // ── Button 2: the exciter ──────────────────────────────────────────────
+    {
+        Engine       e;
+        ControlModel m;
+        e.Init(kSR, kBlock);
+        m.Init(&e, 0.5f, 0.5f);
+        Check(m.GetExciter() == Exciter::Pluck, "boots plucked");
+        m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        Check(m.GetExciter() == Exciter::Bow, "button 2 switches to bowing");
+        Check(e.GetExciter() == Exciter::Bow, "and the engine agrees");
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        Check(m.GetExciter() == Exciter::Pluck, "and back again");
+    }
 }
 
 // ============================================================================
-// 6e. Changing scale with the arp OFF
+// 6b. Bowing
 // ============================================================================
-// The pad holds notes in every mode, so the retune has to work in every mode
-// too. It used to bail out with the arp off — leaving the chord in the old scale
-// with nothing sequencing to reveal it, so the encoder appeared to do nothing.
-static void TestScaleRetuneWithArpOff()
+// DaisySP's StringVoice has a sustain flag that swaps its plucked burst for
+// continuous dust, which is a bow. The two things that can go wrong are it
+// droning when nothing is held, and an arp step striking the string instead of
+// just moving its pitch.
+static void TestBow()
 {
-    Section("Scale changes with the arp off");
+    Section("Bowing");
 
-    Engine       e;
-    ControlModel m;
-    e.Init(kSR, kBlock);
-    m.Init(&e, 0.5f, 0.5f);
-    const float dt = 0.001f;
-
-    auto press_enc = [&] {
-        m.Read(false, false, 0.5f, 0.5f, 0, true, dt);
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-    };
-    auto to_degree = [&](int d) {
-        m.Read(false, false, 0.5f, 0.5f, d - static_cast<int>(m.Degree()), false, dt);
+    auto render = [](Engine& e, float secs, float* peak_out) {
+        float bl[kBlock], br[kBlock];
+        float peak = 0.0f;
+        for(int b = 0; b < static_cast<int>(secs * kSR / kBlock); b++)
+        {
+            e.Process(bl, br, kBlock);
+            for(int i = 0; i < kBlock; i++)
+                if(std::fabs(bl[i]) > peak) peak = std::fabs(bl[i]);
+        }
+        *peak_out = peak;
     };
 
-    Check(m.Mode() == ArpMode::Off, "arp off, as at power-on");
-    for(int d : { 0, 2, 4 })
+    // Nothing held: a bow must be silent, not a drone.
     {
-        to_degree(d);
-        press_enc();
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        float peak = 0.0f;
+        render(e, 2.0f, &peak);
+        Check(peak == 0.0f, "bowing with nothing held is silent, not a drone");
     }
 
-    for(int i = 0; i < 600; i++) m.Read(true, false, 0.5f, 0.5f, 0, false, dt);
-    e.TakePluck();
-    m.Read(true, false, 0.5f, 0.5f, 1, false, dt);
-    m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-
-    int matched = 0, stale = 0;
-    for(int d : { 0, 2, 4 })
-        if(e.IsHeld(e.NoteForDegree(d))) matched++;
-    for(uint8_t n = 0; n < 128; n++)
+    // A held note sings, and keeps singing — that is the whole point.
     {
-        if(!e.IsHeld(n)) continue;
-        bool belongs = false;
-        for(int d = 0; d < kScaleSize; d++)
-            if(e.NoteForDegree(d) == n) belongs = true;
-        if(!belongs) stale++;
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        e.SetBrightness(0.6f);
+        e.NoteOn(48);
+        float early = 0.0f, late = 0.0f;
+        render(e, 0.5f, &early);
+        render(e, 2.0f, &late);
+        printf("  bowed note: %.1f dBFS early, %.1f dBFS two seconds later\n",
+               Db(early), Db(late));
+        Check(early > 0.01f, "a bowed note sounds");
+        Check(late > 0.01f, "and is still sounding seconds later, unlike a pluck");
     }
-    Check(matched == 3, "the chord follows the scale with the arp off too");
-    Check(stale == 0, "and nothing is left behind in the old scale");
 
-    // ...and it moves SILENTLY. Retuning through ToggleNote would strike every
-    // note of the chord, which is a machine-gun rather than a transposition.
-    Check(!e.TakePluck(), "moving the chord does not pluck it");
+    // The bow must sound even at the bottom of the Brightness knob. DaisySP
+    // drives its dust density from brightness squared, so without a floor this
+    // is silence and bow mode reads as broken.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        e.SetBrightness(0.0f);
+        e.NoteOn(48);
+        float peak = 0.0f;
+        render(e, 1.5f, &peak);
+        printf("  bowed at brightness 0: %.1f dBFS\n", Db(peak));
+        Check(peak > 0.01f, "a bow at zero brightness still sounds");
+    }
+
+    // Held for a long time, a driven resonator must not run away.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        e.SetBrightness(1.0f);
+        e.SetDrive(1.0f);
+        e.SetReverb(1.0f);
+        e.NoteOn(48);
+        e.NoteOn(55);
+        float peak = 0.0f;
+        render(e, 12.0f, &peak);
+        printf("  bowed 12 s, everything at maximum: %.1f dBFS\n", Db(peak));
+        Check(std::isfinite(peak) && peak <= 1.0f,
+              "twelve seconds of bowing stays inside the rails");
+    }
+
+    // Release it and the bow stops.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        e.SetBrightness(0.6f);
+        e.NoteOn(48);
+        float on = 0.0f;
+        render(e, 0.5f, &on);
+        e.NoteOff(48);
+        // Let the string ring down first. Taking the peak of a window that
+        // starts the instant you release just catches the note still decaying,
+        // which is physics rather than a stuck bow.
+        float ringdown = 0.0f, after = 0.0f;
+        render(e, 2.0f, &ringdown);
+        render(e, 1.0f, &after);
+        printf("  released: %.1f dBFS during ring-down, %.1f dBFS after\n",
+               Db(ringdown), Db(after));
+        Check(on > 0.01f, "sounding while held");
+        Check(after < on * 0.02f, "and silent once the string has rung down");
+    }
+
+    // A pluck still decays, so switching back has not broken anything.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Pluck);
+        e.SetBrightness(0.5f);
+        e.NoteOn(48);
+        float early = 0.0f, late = 0.0f;
+        render(e, 0.3f, &early);
+        render(e, 3.0f, &late);
+        Check(early > 0.01f, "a pluck sounds");
+        Check(late < early * 0.5f, "and decays, where a bow would not");
+    }
+
+    // The arp bows a sequence legato: pitch moves, nothing is struck.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetExciter(Exciter::Bow);
+        e.SetArpOn(true);
+        e.SetTempo(0.5f);
+        e.SetDensity(1.0f);
+        e.NoteOn(48);
+        e.NoteOn(55);
+        float peak = 0.0f;
+        render(e, 2.0f, &peak);
+        Check(peak > 0.01f, "a bowed arpeggio sounds");
+        Check(std::isfinite(peak), "and stays finite");
+    }
 }
 
 // ============================================================================
@@ -902,7 +761,7 @@ static void TestWeatherLink()
         CheckNear(m.Mod(Param::Reverb), 0.0f, 1e-6f, "on either controller");
     }
 
-    // The eight-note pad's scale button, and that it moves the pad chord with it.
+    // The pad's scale button. Notes off the wire are absolute and must not move.
     {
         Engine       e3;
         ControlModel m3;
@@ -910,20 +769,14 @@ static void TestWeatherLink()
         e3.Init(kSR, kBlock);
         m3.Init(&e3, 0.5f, 0.5f);
         w3.Init(&e3, &m3);
-        const float dt3 = 0.001f;
-        m3.Read(true, false, 0.5f, 0.5f, 0, false, dt3);
-        m3.Read(false, false, 0.5f, 0.5f, 0, false, dt3);   // arp on
-        // A note from the pad's encoder, and a note off the wire.
-        m3.Read(false, false, 0.5f, 0.5f, 0, true, dt3);
-        m3.Read(false, false, 0.5f, 0.5f, 0, false, dt3);
-        w3.NoteOn(kChMain, 61, 100);                        // not in any scale
+        m3.Read(true, false, 0.5f, 0.5f, 0, false, 0.001f);
+        m3.Read(false, false, 0.5f, 0.5f, 0, false, 0.001f);   // arp on
+        w3.NoteOn(kChMain, 61, 100);                           // not in any scale
 
         Check(e3.ScaleIndex() == 0, "starts on the first scale");
         w3.ControlChange(kChMain, kScaleSelectCC, 2);
         Check(e3.ScaleIndex() == 2, "CC20 selects the scale by index");
-        Check(e3.IsHeld(e3.NoteForDegree(0)),
-              "and the pad's own note follows it into the new scale");
-        Check(e3.IsHeld(61), "while the note off the wire stays exactly where it is");
+        Check(e3.IsHeld(61), "and a note off the wire stays exactly where it is");
         w3.ControlChange(kChMain, kScaleSelectCC, 99);
         Check(e3.ScaleIndex() == 2, "an out-of-range index is ignored");
     }
@@ -1210,11 +1063,8 @@ int main(int argc, char** argv)
     TestArp();
     TestLatch();
     TestClock();
-    TestControlModel();
-    TestScaleRetunes();
-    TestPadHoldsInEveryMode();
-    TestSetupLayerControls();
-    TestScaleRetuneWithArpOff();
+    TestPanel();
+    TestBow();
     TestWeatherLink();
     TestAudio();
     TestBootSilence();

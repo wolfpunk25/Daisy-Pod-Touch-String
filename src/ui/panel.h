@@ -46,7 +46,6 @@ class Panel
 #endif
 
   private:
-    void Hsv(float h, float s, float v, float& r, float& g, float& b);
 
     daisy::DaisyPod* pod_    = nullptr;
     Engine*          engine_ = nullptr;
