@@ -25,19 +25,10 @@
 #include "scale.h"
 #include "space.h"
 #include "trigger.h"
-#include "vox.h"
+#include "voices.h"
 #include "xfade.h"
 
 namespace tspod {
-
-// How the string is excited. "Pluck + Bow" — a bowed chord under a plucked
-// arpeggio — needs more than one string and arrives with polyphony.
-enum class Exciter : uint8_t
-{
-    Pluck = 0,
-    Bow,
-    kCount
-};
 
 class Engine
 {
@@ -67,6 +58,11 @@ class Engine
     // ── Exciter ─────────────────────────────────────────────────────────────
     void    SetExciter(Exciter e);
     Exciter GetExciter() const { return exciter_; }
+
+    // Mono is upstream's instrument: one string, last note wins.
+    void    SetPoly(bool on) { voices_.SetPoly(on); }
+    bool    Poly() const { return voices_.Poly(); }
+    uint8_t ActiveVoices() const { return voices_.ActiveCount(); }
     bool ArpOn() const { return arp_on_; }
     void SetLatch(bool on);
     bool Latched() const { return latch_.On(); }
@@ -132,8 +128,10 @@ class Engine
     void OnNoteFromLatch(uint8_t note);
     void OffNoteFromLatch(uint8_t note);
     void OnArpNote(uint8_t note, uint8_t vel);
-    // The bow sounds while anything is held and must stop when nothing is.
-    void UpdateBow();
+    // Sound every held note. Only meaningful while bowing: a pluck is an event,
+    // not a state, so turning the arp off must not strum the whole chord.
+    void SoundHeldNotes();
+    void StartVoice(uint8_t note);
     void Pluck(uint8_t note, bool humanize_pitch);
     void ResetSequence();
     void StopSequence();
@@ -146,7 +144,7 @@ class Engine
     static constexpr uint32_t kPPQNExtern = 24;
 
     Scale                            scale_;
-    Vox                              vox_;
+    Voices                           voices_;
     Clock                            clock_;
     Trigger                          trigger_;
     CPattern                         pattern_;
@@ -167,6 +165,8 @@ class Engine
     uint8_t string_chance_ = 0;   // 0..100
     bool    arp_on_       = false;
     Exciter exciter_      = Exciter::Pluck;
+    static constexpr uint8_t kNoNote = 0xff;
+    uint8_t last_arp_note_ = kNoNote;
 
     bool  plucked_ = false;
     float peak_    = 0.0f;

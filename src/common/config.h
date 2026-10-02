@@ -30,6 +30,27 @@ static constexpr std::array<std::array<uint8_t, kScaleSize>, kScalesCount> kScal
 
 static constexpr const char* kScaleNames[kScalesCount] = { "Amara", "Oxalis", "Pigmy" };
 
+// ── Voices ──────────────────────────────────────────────────────────────────
+// Upstream is strictly monophonic. Mono is kept as a mode because it IS the
+// original instrument, but with several strings a plucked arpeggio lets each
+// note ring on while the next is struck, and several pad buttons at once become
+// a chord rather than a last-note-wins race.
+//
+// Each voice is about 10.7 KB (two Karplus-Strong delay lines) and costs one
+// resonator's worth of CPU, since only the current exciter's resonator runs —
+// measured, running both costs exactly twice as much. Start here and raise it
+// once the figure on hardware says there is room; the pad has eight buttons, so
+// eight is the number that would let every button sound at once.
+static constexpr int kMaxVoices = 6;
+
+// A voice is freed once it has fallen quiet, so silent ones cost nothing. The
+// tracker is slow on purpose: a long damping setting rings for far longer than a
+// short one and a fixed timeout would cut it.
+static constexpr float kVoiceIdleTrack = 0.0004f;
+// -72 dBFS. Low enough to be inaudible, high enough that a voice is handed back
+// promptly instead of idling for seconds at a level nobody can hear.
+static constexpr float kVoiceIdleFloor = 2.5e-4f;
+
 // ── Notes ───────────────────────────────────────────────────────────────────
 // How many notes can be held at once. Upstream's Simple Touch has seven reachable
 // note pads so eight was generous; the Weather Station can hold five keys and

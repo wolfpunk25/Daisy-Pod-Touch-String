@@ -165,6 +165,17 @@ void Panel::UpdateLeds(float dt)
         if(panic_flash_ < 0.02f) panic_flash_ = 0.0f;
         r2 = panic_flash_;
     }
+    else if(model_.PolyFlash() > 0.0f)
+    {
+        // Poly is one steady white flash, mono is two pulses — the same
+        // one-blink / two-blink convention the Simple Touch fork uses, and
+        // enough to tell which way you just went.
+        const float t = 0.9f - model_.PolyFlash();
+        const bool  on = model_.Poly()
+                             ? (t < 0.45f)
+                             : ((t < 0.12f) || (t > 0.24f && t < 0.36f));
+        if(on) r2 = g2 = b2 = 0.55f;
+    }
     else if(model_.TempoLayer())
     {
         // White, and its brightness IS the tempo — the only parameter on the

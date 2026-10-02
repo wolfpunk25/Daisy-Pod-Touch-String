@@ -517,12 +517,32 @@ static void TestPanel()
         e.Init(kSR, kBlock);
         m.Init(&e, 0.5f, 0.5f);
         Check(m.GetExciter() == Exciter::Pluck, "boots plucked");
-        m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
-        Check(m.GetExciter() == Exciter::Bow, "button 2 switches to bowing");
+
+        // The exciter fires on RELEASE, because the press might still turn out
+        // to be a hold — which is poly/mono.
+        auto tap_b2 = [&] {
+            m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+            m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        };
+        tap_b2();
+        Check(m.GetExciter() == Exciter::Bow, "a tap of button 2 switches to bowing");
         Check(e.GetExciter() == Exciter::Bow, "and the engine agrees");
-        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
-        m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        tap_b2();
         Check(m.GetExciter() == Exciter::Pluck, "and back again");
+
+        // Held, it toggles poly/mono instead — and must not also switch the
+        // exciter on the way out.
+        Check(m.Poly(), "boots polyphonic");
+        const Exciter ex_before = m.GetExciter();
+        for(int i = 0; i < 600; i++) m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        Check(!m.Poly(), "holding button 2 drops to mono");
+        Check(!e.Poly(), "and the engine agrees");
+        Check(m.PolyFlash() > 0.0f, "and says so on the LED");
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        Check(m.GetExciter() == ex_before, "a hold is not also a tap");
+        for(int i = 0; i < 600; i++) m.Read(false, true, 0.5f, 0.5f, 0, false, dt);
+        m.Read(false, false, 0.5f, 0.5f, 0, false, dt);
+        Check(m.Poly(), "and holding again goes back to poly");
     }
 }
 
@@ -651,9 +671,16 @@ static void TestBow()
         e.NoteOn(48);
         float early = 0.0f, late = 0.0f;
         render(e, 0.3f, &early);
-        render(e, 3.0f, &late);
+        // Let it ring down first, then measure. Taking the peak of a window that
+        // begins during the attack just re-reads the attack — the same mistake
+        // the bow release test made.
+        float discard = 0.0f;
+        render(e, 3.0f, &discard);
+        render(e, 0.5f, &late);
+        printf("  pluck: %.1f dBFS attack, %.1f dBFS after three seconds\n",
+               Db(early), Db(late));
         Check(early > 0.01f, "a pluck sounds");
-        Check(late < early * 0.5f, "and decays, where a bow would not");
+        Check(late < early * 0.1f, "and decays, where a bow would not");
     }
 
     // The arp bows a sequence legato: pitch moves, nothing is struck.
@@ -670,6 +697,150 @@ static void TestBow()
         render(e, 2.0f, &peak);
         Check(peak > 0.01f, "a bowed arpeggio sounds");
         Check(std::isfinite(peak), "and stays finite");
+    }
+}
+
+// ============================================================================
+// 6f. Polyphony
+// ============================================================================
+// Upstream is strictly monophonic: every note retriggers the same string, so an
+// arpeggio cuts each note dead as the next arrives. Mono is kept as a mode
+// because it IS the original instrument; poly is what lets notes ring into each
+// other and lets several pad buttons be a chord.
+static void TestPolyphony()
+{
+    Section("Polyphony");
+
+    auto render = [](Engine& e, float secs, float* peak_out) {
+        float bl[kBlock], br[kBlock];
+        float peak = 0.0f;
+        for(int b = 0; b < static_cast<int>(secs * kSR / kBlock); b++)
+        {
+            e.Process(bl, br, kBlock);
+            for(int i = 0; i < kBlock; i++)
+                if(std::fabs(bl[i]) > peak) peak = std::fabs(bl[i]);
+        }
+        *peak_out = peak;
+    };
+
+    // Several notes at once are a chord, not a race.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(true);
+        e.SetBrightness(0.6f);
+        for(uint8_t n : { 36, 43, 48, 50 }) e.NoteOn(n);
+        Check(e.ActiveVoices() == 4, "four notes take four voices");
+        float peak = 0.0f;
+        render(e, 0.5f, &peak);
+        Check(peak > 0.0f, "and they sound");
+    }
+
+    // Mono is one string, last note wins — upstream's behaviour exactly.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(false);
+        e.SetBrightness(0.6f);
+        for(uint8_t n : { 36, 43, 48, 50 }) e.NoteOn(n);
+        Check(e.ActiveVoices() == 1, "mono uses exactly one voice however many notes arrive");
+    }
+
+    // The voice count is a real limit, and overflow steals rather than refuses.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(true);
+        e.SetBrightness(0.6f);
+        for(int i = 0; i < kMaxVoices + 4; i++)
+            e.NoteOn(static_cast<uint8_t>(36 + i));
+        printf("  %d notes into %d voices: %d active\n",
+               kMaxVoices + 4, kMaxVoices, e.ActiveVoices());
+        Check(e.ActiveVoices() == kMaxVoices, "never more voices than there are");
+        float peak = 0.0f;
+        render(e, 0.5f, &peak);
+        Check(peak > 0.0f, "and it still sounds rather than jamming");
+    }
+
+    // The same note twice must not eat a second voice.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(true);
+        e.NoteOn(48);
+        e.NoteOn(48);
+        e.NoteOn(48);
+        Check(e.ActiveVoices() == 1, "repeating a held note re-uses its voice");
+    }
+
+    // THE POINT OF IT: a plucked arpeggio overlaps instead of cutting itself off.
+    {
+        Engine poly, mono;
+        for(Engine* e : { &poly, &mono })
+        {
+            e->Init(kSR, kBlock);
+            e->SetBrightness(0.6f);
+            e->SetDamping(0.7f);
+            e->SetArpOn(true);
+            e->SetTempo(0.8f);     // fast, so steps land inside each other
+            e->SetDensity(1.0f);
+            e->NoteOn(36);
+            e->NoteOn(43);
+            e->NoteOn(48);
+        }
+        poly.SetPoly(true);
+        mono.SetPoly(false);
+
+        int poly_max = 0;
+        float junk = 0.0f;
+        for(int i = 0; i < 40; i++)
+        {
+            render(poly, 0.05f, &junk);
+            if(poly.ActiveVoices() > poly_max) poly_max = poly.ActiveVoices();
+        }
+        int mono_max = 0;
+        for(int i = 0; i < 40; i++)
+        {
+            render(mono, 0.05f, &junk);
+            if(mono.ActiveVoices() > mono_max) mono_max = mono.ActiveVoices();
+        }
+        printf("  arpeggio at speed: poly reached %d overlapping voices, mono %d\n",
+               poly_max, mono_max);
+        Check(poly_max > 1, "a poly arpeggio rings into itself");
+        Check(mono_max == 1, "a mono arpeggio does not, which is upstream's sound");
+    }
+
+    // Dropping to mono has to let the extra voices go, not leave them hanging.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(true);
+        for(uint8_t n : { 36, 43, 48, 50 }) e.NoteOn(n);
+        Check(e.ActiveVoices() == 4, "four sounding");
+        e.SetPoly(false);
+        Check(e.ActiveVoices() <= 1, "switching to mono releases the rest");
+    }
+
+    // A bowed chord is where polyphony earns its keep most obviously.
+    {
+        Engine e;
+        e.Init(kSR, kBlock);
+        e.SetPoly(true);
+        e.SetExciter(Exciter::Bow);
+        e.SetBrightness(0.6f);
+        for(uint8_t n : { 36, 43, 48 }) e.NoteOn(n);
+        Check(e.ActiveVoices() == 3, "three bowed voices");
+        float held = 0.0f, settled = 0.0f;
+        render(e, 2.0f, &held);
+        for(uint8_t n : { 36, 43, 48 }) e.NoteOff(n);
+        float discard = 0.0f;
+        render(e, 4.0f, &discard);
+        render(e, 1.0f, &settled);
+        printf("  bowed chord: %.1f dBFS held, %.1f dBFS once released\n",
+               Db(held), Db(settled));
+        Check(held > 0.02f, "a bowed chord sounds");
+        Check(settled < held * 0.02f, "and all of it rings down when released");
+        Check(e.ActiveVoices() == 0, "freeing every voice");
     }
 }
 
@@ -1078,6 +1249,7 @@ int main(int argc, char** argv)
     TestClock();
     TestPanel();
     TestBow();
+    TestPolyphony();
     TestWeatherLink();
     TestAudio();
     TestBootSilence();

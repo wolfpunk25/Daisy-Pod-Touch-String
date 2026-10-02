@@ -91,13 +91,14 @@ int main(void)
             last_log            = now;
             const ControlModel& m = panel.Model();
             // pod.seed.PrintLine() truncates at 128 characters, silently.
-            pod.seed.PrintLine("cpu %d/%d  arp %d  exciter %d  chance %d  tempoL %d  sc %d  midi %d",
+            pod.seed.PrintLine("cpu %d/%d  arp %d  exciter %d  poly %d  voices %d  chance %d  sc %d  midi %d",
                                static_cast<int>(cpu.GetAvgCpuLoad() * 100.0f),
                                static_cast<int>(cpu.GetMaxCpuLoad() * 100.0f),
                                static_cast<int>(m.Mode()),
                                static_cast<int>(m.GetExciter()),
+                               m.Poly() ? 1 : 0,
+                               static_cast<int>(engine.ActiveVoices()),
                                static_cast<int>(m.ChanceStep()),
-                               m.TempoLayer() ? 1 : 0,
                                static_cast<int>(m.ScaleIndex()),
                                panel.Link().Linked() ? 1 : 0);
             const Engine::Stages st    = engine.TakeStages();

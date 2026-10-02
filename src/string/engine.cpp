@@ -22,7 +22,7 @@ void Engine::Init(float sample_rate, float block_size)
     arp_.SetRandChance(0);
     arp_.SetAsPlayed(true);
 
-    vox_.Init(sample_rate);
+    voices_.Init(sample_rate);
     drive_.Init();
     space_.Init(sample_rate);
 
@@ -40,17 +40,7 @@ void Engine::NoteOn(uint8_t note)
 #if TS_QUANTIZE_MIDI_NOTES
     note = scale_.Quantize(note);
 #endif
-    // The held set is maintained in every mode, exactly as for the encoder pad,
-    // so turning the arp on picks up whatever is already down instead of waiting
-    // for the next note.
     latch_.NoteOn(note);
-    UpdateBow();
-    if(!arp_on_)
-    {
-        // No sequencer to run, so play it straight through.
-        Pluck(note, false);
-        return;
-    }
     StartOrStop();
 }
 
@@ -60,7 +50,6 @@ void Engine::NoteOff(uint8_t note)
     note = scale_.Quantize(note);
 #endif
     latch_.NoteOff(note);
-    UpdateBow();
     if(arp_on_) StartOrStop();
 }
 
@@ -77,17 +66,7 @@ void Engine::NoteOff(uint8_t note)
 // anyone would reach for it in.
 void Engine::ToggleNote(uint8_t note)
 {
-    const bool was_held = latch_.IsHeld(note);
     latch_.Toggle(note);
-    UpdateBow();
-
-    if(!arp_on_)
-    {
-        // No sequencer to run — but pluck it once so adding a note makes a
-        // sound. Removing one does not.
-        if(!was_held) Pluck(note, false);
-        return;
-    }
     StartOrStop();
 }
 
@@ -109,30 +88,38 @@ void Engine::SetArpOn(bool on)
 {
     if(arp_on_ == on) return;
     arp_on_ = on;
-    if(on) StartOrStop();
-    else StopSequence();
-    UpdateBow();
+    // Whichever regime we were in, let its voices go: the two sound the held set
+    // in completely different ways.
+    voices_.ReleaseAll();
+    last_arp_note_ = kNoNote;
+    if(on)
+    {
+        StartOrStop();
+    }
+    else
+    {
+        StopSequence();
+        SoundHeldNotes();
+    }
 }
 
 void Engine::SetExciter(Exciter e)
 {
     if(e >= Exciter::kCount || e == exciter_) return;
-    exciter_ = e;
-    UpdateBow();
-}
-
-// The bow runs while something is held and stops when nothing is — otherwise it
-// drones for ever, which is the one thing a continuous exciter must not do.
-void Engine::UpdateBow()
-{
-    vox_.SetSustain(exciter_ == Exciter::Bow && latch_.Any());
+    exciter_       = e;
+    last_arp_note_ = kNoNote;
+    voices_.SetExciter(e);
+    // A bow is a state, so switching into it with notes already held has to
+    // start them sounding; switching out leaves nothing behind.
+    if(!arp_on_) SoundHeldNotes();
 }
 
 void Engine::AllNotesOff()
 {
     latch_.Clear();
     ResetSequence();
-    UpdateBow();
+    voices_.Kill();
+    last_arp_note_ = kNoNote;
 }
 
 void Engine::SetLatch(bool on)
@@ -144,16 +131,28 @@ void Engine::SetLatch(bool on)
 void Engine::OnNoteFromLatch(uint8_t note)
 {
     arp_.NoteOn(note, 127);
+    // Nothing is sequencing, so this note has to sound now. With the arp running
+    // the arp decides when each note speaks.
+    if(!arp_on_) StartVoice(note);
 }
 
 void Engine::OffNoteFromLatch(uint8_t note)
 {
     arp_.NoteOff(note);
+    if(!arp_on_) voices_.Release(note);
 }
 
 // Start the clock when there is something to play, stop it when there is not.
 void Engine::StartOrStop()
 {
+    // With the arp off there is nothing to run, and running it anyway is not
+    // silent: the clock ticks, the arp triggers, and the held note is re-struck
+    // every sixteenth. That read as a pluck which never decayed.
+    if(!arp_on_)
+    {
+        StopSequence();
+        return;
+    }
     if(arp_.HasNote())
     {
         if(!clock_.IsRunning()) clock_.Run();
@@ -189,22 +188,40 @@ void Engine::OnClockTick()
 
 void Engine::OnArpNote(uint8_t note, uint8_t)
 {
-    Pluck(note, true);
+    // Bowing, each step lifts the bow on the one before it, so the steps overlap
+    // and ring down into each other instead of piling up into a drone.
+    if(exciter_ == Exciter::Bow && last_arp_note_ != kNoNote)
+        voices_.Release(last_arp_note_);
+    const uint8_t sounded = HumanizedNote(note);
+    last_arp_note_        = sounded;
+    StartVoice(sounded);
 }
 
 void Engine::Pluck(uint8_t note, bool humanize_pitch)
 {
-    const uint8_t n = humanize_pitch ? HumanizedNote(note) : note;
+    StartVoice(humanize_pitch ? HumanizedNote(note) : note);
+}
+
+// Give `note` a voice and begin sounding it. The pool strikes it when plucking
+// and draws the bow when bowing, so this is the one place a note becomes sound.
+void Engine::StartVoice(uint8_t note)
+{
     ApplyStringHumanize();
-    vox_.SetFreq(scale_.Freq(n));
-    // Bowing, the string is already sounding: an arp step moves its pitch and
-    // that is all. Striking it as well is a scratch, not an attack, and it is
-    // what makes a bowed sequence sing rather than stutter.
-    if(exciter_ != Exciter::Bow) vox_.Trig();
+    voices_.Start(note, scale_.Freq(note));
     plucked_ = true;
 #if TS_DEBUG
     pluck_count_++;
 #endif
+}
+
+// Only meaningful while bowing: a pluck is an event rather than a state, so
+// turning the arp off must not strum the whole held chord.
+void Engine::SoundHeldNotes()
+{
+    if(exciter_ != Exciter::Bow) return;
+    for(int n = 0; n < 128; ++n)
+        if(latch_.IsHeld(static_cast<uint8_t>(n)))
+            StartVoice(static_cast<uint8_t>(n));
 }
 
 // ── The humanizer ───────────────────────────────────────────────────────────
@@ -275,9 +292,9 @@ void Engine::ApplyStringHumanize()
         if(d > 1.0f) d = 1.0f;
     }
 
-    vox_.SetBrightness(b);
-    vox_.SetStructure(s);
-    vox_.SetDamping(d);
+    voices_.SetBrightness(b);
+    voices_.SetStructure(s);
+    voices_.SetDamping(d);
 }
 
 // ── Controls ────────────────────────────────────────────────────────────────
@@ -334,7 +351,7 @@ void Engine::Process(float* out_l, float* out_r, size_t size)
     float peak = 0.0f;
     for(size_t i = 0; i < size; i++)
     {
-        const float raw = vox_.Process();
+        const float raw = voices_.Process();
         const float dry = drive_.Process(raw) * volume_;
 
         // Upstream feeds the reverb through the crossfade and adds the dry

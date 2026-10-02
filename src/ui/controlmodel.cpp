@@ -28,6 +28,7 @@ void ControlModel::Init(Engine* engine, float knob1, float knob2)
     engine_->SetTranspose(kTransposeDefault);
     engine_->SetScaleIndex(scale_);
     engine_->SetExciter(exciter_);
+    engine_->SetPoly(poly_);
     SetMode(ArpMode::Off);
 }
 
@@ -94,6 +95,13 @@ void ControlModel::SetExciterMode(Exciter e)
 
 // Four steps rather than a knob: this is a character you choose, not something
 // you ride, and it frees the encoder's turn for reverb.
+void ControlModel::TogglePoly()
+{
+    poly_ = !poly_;
+    engine_->SetPoly(poly_);
+    poly_flash_ = 0.9f;
+}
+
 void ControlModel::StepChance()
 {
     chance_step_ = static_cast<uint8_t>((chance_step_ + 1) % 4);
@@ -138,13 +146,38 @@ void ControlModel::Read(bool btn1, bool btn2, float knob1, float knob2,
     }
     b1_ = btn1;
 
-    // ── Button 2: the exciter ───────────────────────────────────────────────
+    // ── Button 2: tap the exciter, hold for poly/mono ───────────────────────
     if(btn2 && !b2_)
     {
-        SetExciterMode(exciter_ == Exciter::Pluck ? Exciter::Bow : Exciter::Pluck);
-        Touch();
+        b2_held_     = 0.0f;
+        b2_consumed_ = false;
+    }
+    if(btn2)
+    {
+        b2_held_ += dt;
+        if(!b2_consumed_ && b2_held_ >= kHoldSec)
+        {
+            TogglePoly();
+            b2_consumed_ = true;
+            Touch();
+        }
+    }
+    if(!btn2 && b2_)
+    {
+        // On release rather than on press, because the press might still turn
+        // out to be a hold.
+        if(!b2_consumed_)
+        {
+            SetExciterMode(exciter_ == Exciter::Pluck ? Exciter::Bow
+                                                     : Exciter::Pluck);
+            Touch();
+        }
+        b2_held_ = 0.0f;
     }
     b2_ = btn2;
+
+    if(poly_flash_ > dt) poly_flash_ -= dt;
+    else poly_flash_ = 0.0f;
 
     // ── Encoder button: chance step, or panic when held ─────────────────────
     if(enc_btn && !enc_)

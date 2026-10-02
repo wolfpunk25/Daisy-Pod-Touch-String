@@ -23,6 +23,7 @@
 //   Button 1 tap        arp: off → on → latched
 //   Button 1 + encoder  tempo (the encoder, not a knob — see below)
 //   Button 2 tap        exciter: pluck → bow
+//   Button 2 held       poly / mono — mono is upstream's one-string instrument
 //
 // The knobs are ABSOLUTE and permanently assigned, which is the whole point.
 // That also means they can never be borrowed: an absolute pot moved while it
@@ -101,6 +102,9 @@ class ControlModel
     // ── Readout, for the LEDs and the debug log ─────────────────────────────
     ArpMode Mode() const { return mode_; }
     Exciter GetExciter() const { return exciter_; }
+    bool    Poly() const { return poly_; }
+    // Non-zero for a moment after poly/mono changes, so the LED can say which.
+    float   PolyFlash() const { return poly_flash_; }
     bool    TempoLayer() const { return tempo_layer_; }
     uint8_t ChanceStep() const { return chance_step_; }
     float   Norm(Param p) const { return norm_[static_cast<int>(p)]; }
@@ -120,6 +124,7 @@ class ControlModel
     void PushParam(Param p);
     void SetMode(ArpMode m);
     void SetExciterMode(Exciter e);
+    void TogglePoly();
     void StepChance();
     void Touch() { touch_left_ = 1.0f; }
 
@@ -134,11 +139,13 @@ class ControlModel
     Exciter exciter_     = Exciter::Pluck;
     uint8_t scale_       = 0;
     uint8_t chance_step_ = 0;
+    bool    poly_        = true;
+    float   poly_flash_  = 0.0f;
 
     // Button and encoder edge state.
     bool  b1_ = false, b2_ = false, enc_ = false;
-    float b1_held_ = 0.0f, enc_held_ = 0.0f;
-    bool  b1_consumed_ = false, enc_consumed_ = false;
+    float b1_held_ = 0.0f, b2_held_ = 0.0f, enc_held_ = 0.0f;
+    bool  b1_consumed_ = false, b2_consumed_ = false, enc_consumed_ = false;
     bool  tempo_layer_ = false;
 
     bool panicked_      = false;
