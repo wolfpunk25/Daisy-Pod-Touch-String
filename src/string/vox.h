@@ -1,17 +1,34 @@
 #pragma once
-// One string. Plucked, or bowed.
+// One string, plucked or bowed.
 //
-// daisysp::StringVoice is an extended Karplus-Strong of the Rings lineage: an
-// excitation burst into a tuned delay with a damping filter in the loop. Its
-// `SetSustain(true)` swaps that burst for continuous dust — which is a bow, and
-// is why bowing cost almost nothing to add. The dust density tracks brightness
-// squared inside DaisySP, so the Brightness control reaches the bow as well,
-// which is the behaviour you would have chosen anyway.
+// PLUCK is daisysp::StringVoice, untouched: an excitation burst into a tuned
+// delay with a damping filter in the loop. It is what the instrument has always
+// sounded like and there is no reason to touch it.
 //
-// Monophonic for now. Polyphony is the next piece of work, and "Pluck + Bow"
-// (a bowed chord underneath a plucked arpeggio) needs it — one string cannot
-// both sustain and be struck.
+// BOW is NOT StringVoice's sustain flag, which was the first attempt and sounded
+// gravelly. That flag drives the string from daisysp::Dust, whose density comes
+// from brightness to the FOURTH power — `density_ = brightness^2` inside
+// StringVoice, squared again inside the dust formula — and `Dust::SetDensity`
+// quietly multiplies by another 0.3. Measured:
+//
+//     osc brightness   impulses/sec   crest
+//          0.50              914       12.8    gravel
+//          0.75            4,545        5.6    gravel
+//          1.00           14,327        3.2    noise-like
+//
+// Smooth only arrives above about 0.85 — and Vox halves the knob for upstream's
+// crash workaround, so a knob at full reaches only 0.50. The bow was structurally
+// stuck in the gravel zone, and worse at the bottom of the knob than the top.
+//
+// The deeper problem is that it ties bow density to BRIGHTNESS. Brightness should
+// shape the tone, not decide whether the excitation is noise or a stream of
+// clicks. So the bow here is its own exciter — white noise through a low pass,
+// into a bare daisysp::String (the same Karplus-Strong resonator StringVoice
+// uses internally, so both modes are the same string). Brightness opens the
+// filter, which is a timbre control again, and the noise is dense by
+// construction.
 #include "daisysp.h"
+#include "../common/config.h"
 
 namespace tspod {
 
@@ -20,36 +37,94 @@ class Vox
   public:
     void Init(float sample_rate)
     {
+        sr_ = sample_rate;
         osc_.Init(sample_rate);
-        // Continuous excitation can walk a DC offset into the loop, which eats
+
+        bow_string_.Init(sample_rate);
+        bow_string_.SetNonLinearity(0.05f);
+        noise_.Init();
+        bow_filter_.Init(sample_rate);
+        bow_filter_.SetRes(0.15f);
+        bow_filter_.SetDrive(0.0f);
+
+        // Continuous excitation walks a DC offset into the loop, which eats
         // headroom and makes the overdrive flutter. A pluck decays and never
         // accumulates enough to matter; a bow does.
         dc_.Init(sample_rate);
+
+        SetBrightness(0.5f);
     }
 
-    // Upstream halves this, with the comment "With high brightness and pitch the
-    // osc crashes. Limiting value to 0.5 until further investigation." The limit
-    // is kept because it is load-bearing on hardware; a 143-point sweep with it
-    // off reproduces nothing on the host, which does not clear the board.
-    void SetBrightness(float v) { osc_.SetBrightness(v * 0.5f); }
+    // Upstream halves this for the pluck, with the comment "With high brightness
+    // and pitch the osc crashes. Limiting value to 0.5 until further
+    // investigation." The limit is kept there because it is load-bearing on
+    // hardware. The bow does not go through StringVoice at all, so it is free to
+    // use the whole range — and it uses it on the filter, not on a density.
+    void SetBrightness(float v)
+    {
+        bright_ = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+        osc_.SetBrightness(bright_ * 0.5f);
+        bow_string_.SetBrightness(bright_);
+        // Exponential, because the bottom of a cutoff sweep is where the ear
+        // hears the most change.
+        const float cut = kBowCutoffLow
+                          * powf(kBowCutoffHigh / kBowCutoffLow, bright_);
+        bow_filter_.SetFreq(cut);
+    }
 
-    void SetStructure(float v) { osc_.SetStructure(daisysp::fmap(v, 0.0f, 0.8f)); }
-    void SetDamping(float v) { osc_.SetDamping(v); }
+    void SetStructure(float v)
+    {
+        osc_.SetStructure(daisysp::fmap(v, 0.0f, 0.8f));
+        // The same parameter reaches the bare resonator as its non-linearity,
+        // which is what StringVoice derives from structure internally.
+        bow_string_.SetNonLinearity(daisysp::fmap(v, 0.0f, 0.35f));
+    }
 
-    void SetFreq(float freq) { osc_.SetFreq(freq); }
+    void SetDamping(float v)
+    {
+        osc_.SetDamping(v);
+        // A bow needs the loop to hold on, or the noise never builds into a
+        // note. Upstream's damping range is fine for a pluck and far too lossy
+        // here, so the bow gets the top of it.
+        bow_string_.SetDamping(kBowDampingLow + (1.0f - kBowDampingLow) * v);
+    }
 
-    // Strike it. Does nothing audible while bowing — the bow is already sounding
-    // and a burst on top of it is a scratch, not an attack.
+    void SetFreq(float freq)
+    {
+        osc_.SetFreq(freq);
+        bow_string_.SetFreq(freq);
+    }
+
+    // Strike it. Pluck only — a burst on top of a sounding bow is a scratch.
     void Trig() { osc_.Trig(); }
 
-    // The bow: on while something is held, off when nothing is, or it drones for
-    // ever.
-    void SetSustain(bool on) { osc_.SetSustain(on); }
+    // The bow runs while something is held and stops when nothing is.
+    void SetSustain(bool on)
+    {
+        if(on == bowing_) return;
+        bowing_ = on;
+        if(on) bow_string_.Reset();   // start from silence, not the last tail
+    }
 
-    float Process() { return dc_.Process(osc_.Process()); }
+    float Process()
+    {
+        if(bowing_)
+        {
+            bow_filter_.Process(noise_.Process());
+            return dc_.Process(bow_string_.Process(bow_filter_.Low() * kBowGain));
+        }
+        return dc_.Process(osc_.Process());
+    }
 
   private:
-    daisysp::StringVoice osc_;
+    float sr_     = 48000.0f;
+    float bright_ = 0.5f;
+    bool  bowing_ = false;
+
+    daisysp::StringVoice osc_;          // pluck
+    daisysp::String      bow_string_;   // bow: the bare resonator
+    daisysp::WhiteNoise  noise_;
+    daisysp::Svf         bow_filter_;
     daisysp::DcBlock     dc_;
 };
 

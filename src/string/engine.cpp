@@ -275,11 +275,6 @@ void Engine::ApplyStringHumanize()
         if(d > 1.0f) d = 1.0f;
     }
 
-    // See kBowBrightnessFloor: brightness is what feeds the bow, and zero
-    // brightness is a silent bow rather than a dark one.
-    if(exciter_ == Exciter::Bow)
-        b = kBowBrightnessFloor + (1.0f - kBowBrightnessFloor) * b;
-
     vox_.SetBrightness(b);
     vox_.SetStructure(s);
     vox_.SetDamping(d);

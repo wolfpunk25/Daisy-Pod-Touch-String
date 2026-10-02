@@ -48,12 +48,20 @@ static constexpr uint8_t kMaxHeldNotes = 16;
 // a knob — it is a character setting you pick, not something you ride.
 static constexpr float kChanceSteps[4] = { 0.00f, 0.30f, 0.60f, 0.90f };
 
-// Bowing, DaisySP derives the dust density that drives the bow from brightness
-// SQUARED — so at the bottom of the Brightness knob a bowed string makes no
-// sound at all. Found by a host test, and it would have read as "bow mode is
-// broken" on the board. The knob is remapped into this range while bowing: the
-// whole sweep still does something, and none of it is silence.
-static constexpr float kBowBrightnessFloor = 0.22f;
+// ── The bow ─────────────────────────────────────────────────────────────────
+// The bow is its own exciter — noise through a low pass into the bare resonator
+// — rather than StringVoice's sustain flag, which is a stream of clicks at
+// anything the knob can reach. See string/vox.h for the measurements.
+//
+// Brightness sweeps the exciter's cutoff across this range, exponentially.
+static constexpr float kBowCutoffLow  = 280.0f;    // Hz
+static constexpr float kBowCutoffHigh = 7500.0f;
+// How hard the bow is drawn. The resonator needs enough energy to build a note
+// out of noise, and not so much that it saturates.
+static constexpr float kBowGain = 0.28f;
+// A bow needs a lossier-than-nothing loop that still holds on; upstream's
+// damping range is tuned for a pluck and is far too lossy to sustain.
+static constexpr float kBowDampingLow = 0.55f;
 static constexpr float kTimbreDefault  = 0.35f;
 static constexpr float kDampingDefault = 0.50f;
 static constexpr float kDriveDefault   = 0.20f;
