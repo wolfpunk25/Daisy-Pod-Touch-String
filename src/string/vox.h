@@ -13,12 +13,19 @@
 // power: measured at 914 impulses a second where the knob could reach, which is
 // gravel rather than friction. See docs/PORTING.md.
 //
+// Both resonators are the VENDORED ones in dsp/, whose per-sample coefficient
+// block is cached. Unpatched, each voice recomputed two powf and an atanf every
+// sample and cost about 17 points of the audio interrupt: six voices peaked the
+// callback at 140% and wedged the instrument. See dsp/kstring.h.
+//
 // Only the resonator for the CURRENT exciter is processed. Running both costs
 // exactly twice as much — measured — and nothing is gained, since the exciter is
 // a global mode and the other resonator is silent. A voice also reports when it
 // has fallen quiet, so the pool can skip it entirely.
 #include "daisysp.h"
 #include "../common/config.h"
+#include "dsp/kstring.h"
+#include "dsp/kstringvoice.h"
 
 namespace tspod {
 
@@ -198,8 +205,8 @@ class Vox
     bool    active_ = false;
     Exciter ex_     = Exciter::Pluck;
 
-    daisysp::StringVoice osc_;          // pluck
-    daisysp::String      bow_string_;   // bow: the bare resonator
+    dsp::StringVoice osc_;              // pluck
+    dsp::String          bow_string_;   // bow: the bare resonator
     daisysp::WhiteNoise  noise_;
     daisysp::Svf         bow_filter_;
     daisysp::DcBlock     dc_;

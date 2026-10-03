@@ -41,7 +41,11 @@ static constexpr const char* kScaleNames[kScalesCount] = { "Amara", "Oxalis", "P
 // measured, running both costs exactly twice as much. Start here and raise it
 // once the figure on hardware says there is room; the pad has eight buttons, so
 // eight is the number that would let every button sound at once.
-static constexpr int kMaxVoices = 6;
+//
+// SIX OVERRAN THE AUDIO CALLBACK at 140% peak and wedged the instrument, before
+// the vendored string's coefficient cache went in. Four is deliberately
+// conservative: raise it from a DEBUG=1 reading, never from an estimate.
+static constexpr int kMaxVoices = 4;
 
 // A voice is freed once it has fallen quiet, so silent ones cost nothing. The
 // tracker is slow on purpose: a long damping setting rings for far longer than a

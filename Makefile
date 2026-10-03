@@ -22,6 +22,7 @@ C_USR_FLAGS = -ffast-math -funroll-loops
 CPP_SOURCES = \
 	src/main.cpp \
 	$(wildcard src/string/*.cpp) \
+	$(wildcard src/string/dsp/*.cpp) \
 	$(wildcard src/ui/*.cpp) \
 	$(wildcard src/midi/*.cpp)
 

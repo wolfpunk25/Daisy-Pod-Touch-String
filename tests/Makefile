@@ -16,6 +16,8 @@ CXXFLAGS := -std=gnu++17 -O2 -g -Wall -Wextra -Wno-unused-parameter \
 
 ENGINE := \
 	$(SRC)/string/engine.cpp \
+	$(SRC)/string/dsp/kstring.cpp \
+	$(SRC)/string/dsp/kstringvoice.cpp \
 	$(SRC)/string/scale.cpp \
 	$(SRC)/string/clock.cpp \
 	$(SRC)/string/cpattern.cpp \
@@ -25,8 +27,7 @@ ENGINE := \
 
 # Only the DaisySP modules the instrument actually reaches.
 DAISYSP := \
-	$(DSP)/PhysicalModeling/stringvoice.cpp \
-	$(DSP)/PhysicalModeling/KarplusString.cpp \
+
 	$(DSP)/Effects/overdrive.cpp \
 	$(DSP)/Filters/svf.cpp \
 	$(DSP)/Utility/dcblock.cpp \
