@@ -42,10 +42,22 @@ static constexpr const char* kScaleNames[kScalesCount] = { "Amara", "Oxalis", "P
 // once the figure on hardware says there is room; the pad has eight buttons, so
 // eight is the number that would let every button sound at once.
 //
-// SIX OVERRAN THE AUDIO CALLBACK at 140% peak and wedged the instrument, before
-// the vendored string's coefficient cache went in. Four is deliberately
-// conservative: raise it from a DEBUG=1 reading, never from an estimate.
-static constexpr int kMaxVoices = 4;
+// MEASURED on hardware with the vendored string's coefficient cache in place:
+//
+//     voices   mean   peak
+//        0      10%    12%
+//        2      22%    33%
+//        4      38%    63%
+//
+// About 7 points a voice, down from the 17 it cost unpatched — where six voices
+// peaked the callback at 140% and WEDGED the instrument, which is a lockup
+// rather than a glitch. Peak is what overruns, not mean, and it runs about 1.65x
+// the mean here: six extrapolates to roughly 86% peak, eight to 109%.
+//
+// So six, and no more. The pad has eight buttons, so a seventh and eighth
+// simultaneous note steal the oldest voices — which is the right trade against a
+// lockup. Re-measure before ever raising this.
+static constexpr int kMaxVoices = 6;
 
 // A voice is freed once it has fallen quiet, so silent ones cost nothing. The
 // tracker is slow on purpose: a long damping setting rings for far longer than a
