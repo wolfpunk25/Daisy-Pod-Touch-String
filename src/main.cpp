@@ -101,6 +101,11 @@ int main(void)
                                static_cast<int>(m.ChanceStep()),
                                static_cast<int>(m.ScaleIndex()),
                                panel.Link().Linked() ? 1 : 0);
+            // GetMaxCpuLoad() is a maximum since the last Reset(), so without
+            // this every "peak" reading is just the worst moment since boot and
+            // cannot be attributed to the state it is printed beside. That
+            // misled the voice-count decision once already.
+            cpu.Reset();
             const Engine::Stages st    = engine.TakeStages();
             const Panel::MidiTally& mt = panel.Midi();
             pod.seed.PrintLine("bright %d dens %d verb %d  bpm %d  notes %d plucks %d",
