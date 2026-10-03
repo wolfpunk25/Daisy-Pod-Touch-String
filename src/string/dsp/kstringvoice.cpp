@@ -1,6 +1,6 @@
 #include "kstringvoice.h"
 #include <algorithm>
-#include "dsp.h"
+#include "Utility/dsp.h"
 
 using namespace daisysp;
 using namespace tspod::dsp;
